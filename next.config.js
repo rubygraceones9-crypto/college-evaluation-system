@@ -24,6 +24,10 @@ const nextConfig = {
         hostname: 'localhost',
       },
       {
+        protocol: 'http',
+        hostname: 'citeeval.duckdns.org',
+      },
+      {
         protocol: 'https',
         hostname: '**',
       },

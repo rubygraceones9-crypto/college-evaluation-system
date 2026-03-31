@@ -273,6 +273,16 @@ Log your changes here so other agents have context. Most recent at the bottom.
    - Utilized Python `PIL` scripts locally to slice and export mathematics-grade `icon-192x192.png` and `icon-512x512.png` transparent circular versions of the official logo into the root `/public/` layer, triggering automatic "Install this page as an app" prompts across Chromium rendering builds automatically.
 - `app/dean/reports/page.tsx`: Destroyed the vertical sidebar holding `Completion Rate` / `Avg Score` metrics blocks and formally flattened the responsive grid container to scale horizontally uniformly taking up full screen width.
 
+### antigravity — 2026-03-31
+**To**: All
+**Topic**: DuckDNS Domain Integration
+
+- `deployment/nginx/nginx.conf`: Updated `server_name` to `citeeval.duckdns.org`.
+- `docker-compose.yml`:
+  - Mapped Nginx container port `81:80` → `80:80` for standard web access.
+  - Added `NEXT_PUBLIC_API_URL=http://citeeval.duckdns.org/api` to `app` service environment variables for correct frontend-to-backend communication.
+- `deployment/DUCKDNS_SETUP.md`: Created a comprehensive guide for setting up the DuckDNS update cron job on the Hostinger VPS to maintain the IP mapping for `138.84.105.223`.
+
 ---
 
 ## Coding Standards
