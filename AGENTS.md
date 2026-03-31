@@ -275,13 +275,13 @@ Log your changes here so other agents have context. Most recent at the bottom.
 
 ### antigravity — 2026-03-31
 **To**: All
-**Topic**: DuckDNS Domain Integration
+**Topic**: Hardcoded Domain Wiring
 
-- `deployment/nginx/nginx.conf`: Updated `server_name` to `citeeval.duckdns.org`.
-- `docker-compose.yml`:
-  - Mapped Nginx container port `81:80` → `80:80` for standard web access.
-  - Added `NEXT_PUBLIC_API_URL=http://citeeval.duckdns.org/api` to `app` service environment variables for correct frontend-to-backend communication.
-- `deployment/DUCKDNS_SETUP.md`: Created a comprehensive guide for setting up the DuckDNS update cron job on the Hostinger VPS to maintain the IP mapping for `138.84.105.223`.
+- `Dockerfile` & `deployment/Dockerfile`: Added `ARG NEXT_PUBLIC_API_URL` and `ENV NEXT_PUBLIC_API_URL` to bake the domain into the Next.js bundle during `npm run build`.
+- `docker-compose.yml` & `deployment/docker-compose.yml`:
+  - Added `args: [NEXT_PUBLIC_API_URL=http://citeeval.duckdns.org/api]` to the build context.
+  - Set `NEXT_PUBLIC_API_URL` in the environment block for server-side consistency.
+  - Mapped Nginx port `80:80` (previously `81:80` or `8080:80`) to ensure standard web access.
 
 ---
 
