@@ -186,13 +186,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Indexes for Performance
-CREATE INDEX IF NOT EXISTS idx_courses_teacher ON courses(teacher_id);
-CREATE INDEX IF NOT EXISTS idx_course_enrollments_student ON course_enrollments(student_id);
-CREATE INDEX IF NOT EXISTS idx_course_enrollments_course ON course_enrollments(course_id);
-CREATE INDEX IF NOT EXISTS idx_evaluations_course ON evaluations(course_id);
-CREATE INDEX IF NOT EXISTS idx_evaluations_evaluatee ON evaluations(evaluatee_id);
-CREATE INDEX IF NOT EXISTS idx_evaluations_evaluator ON evaluations(evaluator_id);
-CREATE INDEX IF NOT EXISTS idx_evaluation_responses_evaluation ON evaluation_responses(evaluation_id);
-CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_courses_teacher ON courses(teacher_id);
+CREATE INDEX idx_course_enrollments_student ON course_enrollments(student_id);
+CREATE INDEX idx_course_enrollments_course ON course_enrollments(course_id);
+CREATE INDEX idx_evaluations_course ON evaluations(course_id);
+CREATE INDEX idx_evaluations_evaluatee ON evaluations(evaluatee_id);
+CREATE INDEX idx_evaluations_evaluator ON evaluations(evaluator_id);
+CREATE INDEX idx_evaluation_responses_evaluation ON evaluation_responses(evaluation_id);
+CREATE INDEX idx_comments_author ON comments(author_id);
+CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
