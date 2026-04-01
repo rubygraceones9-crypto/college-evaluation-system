@@ -10,9 +10,9 @@ const pool = globalForDb.__dbPool ?? new Pool({
   ssl: {
     rejectUnauthorized: false
   },
-  max: 10,
+  max: 20, // Increased for concurrent Cloud users
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // 10s wait for Neon to wake up
 });
 
 if (process.env.NODE_ENV !== 'production') {
