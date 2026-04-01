@@ -13,6 +13,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
 ENV PORT=10000
+ENV HOSTNAME=0.0.0.0
 
 # Standalone build artifacts
 COPY --from=builder /app/public ./public
