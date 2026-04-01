@@ -16,6 +16,7 @@ let syncFired = false;
 export default function StudentDashboard() {
   const router = useRouter();
   const { user } = useAuth();
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Just-In-Time: sync missing evaluations for late registrants on dashboard load
   useEffect(() => {
@@ -25,15 +26,23 @@ export default function StudentDashboard() {
     const token = typeof window !== 'undefined' ? sessionStorage.getItem('auth_token') : null;
     if (!token) return;
     const base = process.env.NEXT_PUBLIC_API_URL || '/api';
+
     fetch(`${base}/evaluations/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    }).catch((err) => { console.error('Error:', err); });
+    })
+      .then(() => {
+        // After sync, re-fetch student evaluations so dashboard reflects new assignments immediately
+        setRefreshKey((prev) => prev + 1);
+      })
+      .catch((err) => {
+        console.error('Error:', err);
+      });
   }, []);
 
-  const { data: evalData, loading: evalLoading } = useFetch<any>('/evaluations?type=teacher');
-  const { data: coursesData, loading: coursesLoading } = useFetch<any>('/courses');
-  const { data: periodData, loading: periodLoading } = useFetch<any>('/evaluation_periods?status=active');
+  const { data: evalData, loading: evalLoading } = useFetch<any>(`/evaluations?type=teacher&refresh=${refreshKey}`);
+  const { data: coursesData, loading: coursesLoading } = useFetch<any>(`/courses?refresh=${refreshKey}`);
+  const { data: periodData, loading: periodLoading } = useFetch<any>(`/evaluation_periods?status=active&refresh=${refreshKey}`);
 
   const isLoading = evalLoading || coursesLoading || periodLoading;
   const evaluations = (evalData?.evaluations || []).filter((e: any) => e.evaluation_type === 'teacher');
