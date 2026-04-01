@@ -1,39 +1,50 @@
-import mysql from 'mysql2/promise';
+import { Pool } from 'pg';
 
-// Prevent connection leaks during Next.js hot reloads in development.
-// Without this, every HMR cycle creates a new pool while the old one's
-// connections stay open, eventually exhausting MySQL's max_connections.
-const globalForDb = globalThis as unknown as { __dbPool?: mysql.Pool };
+// For Neon Cloud, we use a single connection string (DATABASE_URL)
+const connectionString = process.env.DATABASE_URL;
 
-const pool = globalForDb.__dbPool ?? mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD as string,
-  database: process.env.DB_NAME || 'cite_es',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  dateStrings: true,
+const globalForDb = globalThis as unknown as { __dbPool?: Pool };
+
+const pool = globalForDb.__dbPool ?? new Pool({
+  connectionString,
+  ssl: {
+    rejectUnauthorized: false
+  },
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
 if (process.env.NODE_ENV !== 'production') {
   globalForDb.__dbPool = pool;
 }
 
+/**
+ * Helper to translate MySQL style '?' to Postgres style '$1, $2...'
+ * Also strips MySQL backticks (`) which Postgres doesn't like.
+ */
+function translateSql(sql: string) {
+  let index = 1;
+  const cleanedSql = sql.replace(/`/g, '"'); // Postgres likes double-quotes for identifiers if needed, but none is often better
+  return cleanedSql.replace(/\?/g, () => `$${index++}`);
+}
+
 export async function query(sql: string, values?: any[]) {
   try {
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
     try {
-      const [results] = values
-        ? await connection.execute(sql, values)
-        : await connection.execute(sql);
-      return results;
+      // Postgres uses $1, $2 instead of ?
+      const translatedSql = translateSql(sql);
+      const res = values 
+        ? await client.query(translatedSql, values) 
+        : await client.query(translatedSql);
+      
+      // Return .rows to match the previous mysql2 [results] format
+      return res.rows || [];
     } finally {
-      connection.release();
+      client.release();
     }
   } catch (error) {
-    // If the database is unavailable, fall back to empty results.
-    // This allows the app to run without a database while still rendering.
     console.warn('DB query failed, returning empty result:', error);
     return [];
   }

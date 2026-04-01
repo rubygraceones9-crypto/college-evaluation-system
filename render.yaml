@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: college-evaluation-system
+    runtime: docker
+    plan: free # Change this to 'starter' if you need more speed!
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        sync: false # Set this in the Render Dashboard manually for safety!
+      - key: DATABASE_URL
+        sync: false # Set this in the Render Dashboard manually for safety!
+      - key: NEXT_PUBLIC_API_URL
+        fromContext: true
+        value: https://${RENDER_EXTERNAL_HOSTNAME}/api
+    autoDeploy: true

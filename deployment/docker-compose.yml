@@ -8,11 +8,12 @@ services:
     restart: always
     environment:
       - NODE_ENV=production
+      - JWT_SECRET=C@itE_eValuAtiOn_SySteM_2026_SeCuRe_X82P9_Lq7
       - DB_HOST=db
+      - DB_USER=cite_db_admin
+      - DB_PASSWORD=StRonG_Es_PaSs_992!_Xz
       - DB_NAME=cite_es
-      - DB_USER=root
-      - DB_PASSWORD=root
-      - JWT_SECRET=cite_evaluation_system_secret_key_2026
+      - REDIS_URL=redis://redis:6379
       - NEXT_PUBLIC_API_URL=http://citeeval.duckdns.org/api
     depends_on:
       - db
