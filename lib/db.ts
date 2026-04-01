@@ -1,7 +1,7 @@
 import { Pool } from 'pg';
 
-// For Neon Cloud, we use a single connection string (DATABASE_URL)
-const connectionString = process.env.DATABASE_URL;
+// For Neon Cloud, we use a single connection string (DATABASE_URL or DATABASE_URI)
+const connectionString = process.env.DATABASE_URL || process.env.DATABASE_URI;
 
 const globalForDb = globalThis as unknown as { __dbPool?: Pool };
 

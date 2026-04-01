@@ -78,8 +78,8 @@ async function handleEmailLogin(
       );
     }
 
-    if (!process.env.DATABASE_URL) {
-      console.error('CRITICAL: DATABASE_URL is missing in Render environment variables!');
+    if (!process.env.DATABASE_URL && !process.env.DATABASE_URI) {
+      console.error('CRITICAL: DATABASE_URL/URI is missing in Render environment variables!');
     }
 
     // Query database for user (using LOWER for case-insensitive email match in Postgres)

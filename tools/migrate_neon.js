@@ -3,9 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 async function migrate() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL || process.env.DATABASE_URI;
   if (!connectionString) {
-    console.error('❌ Error: DATABASE_URL environment variable is not set. Use "$env:DATABASE_URL=\'url\'; npm run db:init" in PowerShell.');
+    console.error('❌ Error: DATABASE_URL/URI environment variable is not set. Use "$env:DATABASE_URL=\'url\'; npm run db:init" in PowerShell.');
     process.exit(1);
   }
 
