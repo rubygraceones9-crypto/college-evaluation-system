@@ -53,9 +53,10 @@ export default function StudentDashboard() {
     return periodStatus === 'active';
   });
 
-  const activePeriod = (evaluations.length > 0) 
+  const systemActivePeriod = periodData?.periods?.[0];
+  const activePeriod = systemActivePeriod || (evaluations.length > 0 
     ? (pendingEvals[0]?.period || evaluations[0]?.period) 
-    : null;
+    : null);
 
   let deadline = null;
   if (activePeriod?.end_date) {
