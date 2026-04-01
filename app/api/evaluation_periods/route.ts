@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     let queryStr = `SELECT ep.*, ef.type as form_type
      FROM evaluation_periods ep
-     LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id`;
+     LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
     const params: any[] = [];
     const conditions: string[] = [];
 
@@ -91,10 +91,10 @@ export async function POST(request: NextRequest) {
     }
     const result: any = await query(
       `INSERT INTO evaluation_periods (name, start_date, end_date, status, form_id, academic_period_id, academic_year, semester, assignments_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       [name, start_date || '1970-01-01', end_date || '1970-01-01', status || 'upcoming', form_id || null, academic_period_id || null, academic_year || null, semester || null, assignments_json || null]
     );
-    const inserted = await queryOne('SELECT * FROM evaluation_periods WHERE id = ?', [result.insertId]);
+    const inserted = await queryOne('SELECT * FROM evaluation_periods WHERE id = ?', [result[0]?.id]);
     return NextResponse.json({ success: true, period: inserted });
   } catch (error) {
     console.error('Eval periods POST error:', error);
@@ -219,11 +219,13 @@ export async function DELETE(request: NextRequest) {
 
     // Cascade-delete: responses → evaluations → period
     await query(
-      `DELETE er FROM evaluation_responses er
-       JOIN evaluations e ON er.evaluation_id = e.id
-       WHERE e.period_id = ?`,
+      `DELETE FROM evaluation_responses er
+       USING evaluations e 
+       WHERE er.evaluation_id = e.id
+         AND e.period_id = ?`,
       [id]
     );
+    await query('DELETE FROM evaluations WHERE period_id = ?', [id]);
     await query('DELETE FROM evaluations WHERE period_id = ?', [id]);
     await query('DELETE FROM evaluation_periods WHERE id = ?', [id]);
 

@@ -37,11 +37,11 @@ export async function GET(request: NextRequest) {
       // Teachers see their own courses
       courses = await query(
         `SELECT c.id, c.name, c.code, c.semester, c.description, c.section, c.teacher_id, c.is_archived,
-                COUNT(e.id) as student_count
+                COUNT(e.student_id) as student_count
          FROM courses c
          LEFT JOIN course_enrollments e ON c.id = e.course_id
-         WHERE c.teacher_id = ? ${isHistory ? '' : 'AND c.is_archived = 0'}
-         GROUP BY c.id`,
+         WHERE c.teacher_id = ? ${isHistory ? '' : 'AND c.is_archived = FALSE'}
+         GROUP BY c.id, c.name, c.code, c.semester, c.description, c.section, c.teacher_id, c.is_archived`,
         [decoded.userId]
       );
     } else if (decoded.role === 'student') {
@@ -52,8 +52,8 @@ export async function GET(request: NextRequest) {
          FROM courses c
          INNER JOIN course_enrollments e ON c.id = e.course_id
          LEFT JOIN users u ON c.teacher_id = u.id
-         WHERE e.student_id = ? ${isHistory ? '' : 'AND c.is_archived = 0'}
-         GROUP BY c.id`,
+         WHERE e.student_id = ? ${isHistory ? '' : 'AND c.is_archived = FALSE'}
+         GROUP BY c.id, c.name, c.code, c.semester, c.description, c.section, c.teacher_id, c.is_archived, u.name`,
         [decoded.userId]
       );
     } else if (decoded.role === 'dean') {
@@ -62,12 +62,12 @@ export async function GET(request: NextRequest) {
         `SELECT c.id, c.name, c.code, c.semester, c.description, c.section, c.teacher_id, c.is_archived,
                 c.course_program, c.year_level,
                 u.name as teacher_name,
-                COUNT(e.id) as student_count
+                COUNT(e.student_id) as student_count
          FROM courses c
          LEFT JOIN users u ON c.teacher_id = u.id
          LEFT JOIN course_enrollments e ON c.id = e.course_id
-         ${isHistory ? '' : 'WHERE c.is_archived = 0'}
-         GROUP BY c.id`
+         ${isHistory ? '' : 'WHERE c.is_archived = FALSE'}
+         GROUP BY c.id, c.name, c.code, c.semester, c.description, c.section, c.teacher_id, c.is_archived, c.course_program, c.year_level, u.name`
       );
     }
 

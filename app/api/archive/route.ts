@@ -26,14 +26,14 @@ export async function POST(request: NextRequest) {
     
     // 2. Lock all pending evaluations globally, archive history, and freeze loose comments
     await query(`UPDATE evaluations SET status = 'locked' WHERE status IN ('pending', 'draft')`);
-    await query(`UPDATE evaluations SET is_archived = 1`);
-    await query(`UPDATE comments SET is_archived = 1`);
+    await query(`UPDATE evaluations SET is_archived = TRUE`);
+    await query(`UPDATE comments SET is_archived = TRUE`);
     
     // 3. Deactivate and naturally "hide" existing academic_periods
-    await query(`UPDATE academic_periods SET is_active = 0, is_archived = 1`);
+    await query(`UPDATE academic_periods SET is_active = FALSE, is_archived = TRUE`);
     
     // 4. Archive all existing courses (this hides them from the student/teacher portals naturally since we added c.is_archived = 0 to GET /courses)
-    await query(`UPDATE courses SET is_archived = 1`);
+    await query(`UPDATE courses SET is_archived = TRUE`);
 
     // 5. Audit Log the completion
     await query(`

@@ -73,7 +73,8 @@ export async function GET(request: NextRequest) {
          LEFT JOIN courses c ON e.course_id = c.id
          LEFT JOIN users u ON e.evaluatee_id = u.id
          LEFT JOIN users ev ON e.evaluator_id = ev.id
-         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id`;
+         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
+         LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
       const conditions: string[] = [];
       const params: any[] = [];
       if (filterId) {
@@ -102,7 +103,7 @@ export async function GET(request: NextRequest) {
       const withResp = await Promise.all(
         (evaluations || []).map(async (evaluation: any) => {
           // Join responses with questions to get the question text
-          const responses: any = await query(
+           const responses: any = await query(
             `SELECT er.id, er.criteria_id, er.rating, er.comment,
                     eq.text as question_text, ec.name as criteria_name
              FROM evaluation_responses er
@@ -146,7 +147,8 @@ export async function GET(request: NextRequest) {
          FROM evaluations e
          LEFT JOIN courses c ON e.course_id = c.id
          LEFT JOIN users u ON e.evaluatee_id = u.id
-         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id`;
+         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
+         LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
       const params: any[] = [decoded.userId];
       if (role === 'evaluatee') {
         base += ' WHERE e.evaluatee_id = ?';
@@ -311,7 +313,7 @@ export async function POST(request: NextRequest) {
         const period: any = await queryOne(
           `SELECT ep.assignments_json, ep.academic_year, ep.semester, ep.form_id, ef.type as form_type
            FROM evaluation_periods ep
-           LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id
+           LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)
            WHERE ep.id = ?`,
           [periodId]
         );
@@ -319,7 +321,7 @@ export async function POST(request: NextRequest) {
         // Peer-review form: generate pairwise evaluations among all active teachers
         if (period?.form_type === 'peer-review') {
           const teachers: any = await query(
-            `SELECT id FROM users WHERE role = 'teacher' AND is_active = 1`
+            `SELECT id FROM users WHERE role = 'teacher' AND is_active = TRUE`
           );
           for (const evaluator of (teachers || [])) {
             for (const evaluatee of (teachers || [])) {
@@ -401,10 +403,10 @@ export async function POST(request: NextRequest) {
               if (!course) {
                 const insertResult: any = await query(
                   `INSERT INTO courses (code, name, teacher_id, section, course_program, year_level, academic_year, semester)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
                   [code, subjectName, instructorId, section, program, yearNum, period.academic_year, semesterNum]
                 );
-                course = { id: insertResult.insertId };
+                course = { id: insertResult[0]?.id };
                 coursesCreated++;
               }
 
@@ -420,9 +422,9 @@ export async function POST(request: NextRequest) {
               for (const student of (students || [])) {
                 // Create enrollment if it doesn't exist
                 await query(
-                  `INSERT IGNORE INTO course_enrollments (course_id, student_id) VALUES (?, ?)`,
+                  `INSERT INTO course_enrollments (course_id, student_id) VALUES (?, ?) ON CONFLICT (student_id, course_id) DO NOTHING`,
                   [courseId, student.id]
-                ).then((r: any) => { enrollmentsCreated += r?.affectedRows || 0; });
+                ).then((r: any) => { enrollmentsCreated += Number(r?.rowCount) || 0; });
 
                 // 3. Create evaluation: student (evaluator) evaluates teacher (evaluatee)
                 const exists: any = await queryOne(
@@ -469,10 +471,10 @@ export async function POST(request: NextRequest) {
       }
       const insertResult: any = await query(
         `INSERT INTO evaluations (course_id, period_id, evaluatee_id, evaluator_id, evaluation_type, status)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
         [body.courseId || null, body.periodId || null, evaluatee, decoded.userId, body.evaluationType || 'teacher', 'draft']
       );
-      evaluationId = insertResult.insertId;
+      evaluationId = insertResult[0]?.id;
     }
 
     if (!body.responses || !Array.isArray(body.responses)) {

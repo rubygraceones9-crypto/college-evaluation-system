@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
       const totalEvaluations = evaluationsResult[0]?.count || 0;
 
       const submittedResult: any = await query(
-        'SELECT COUNT(*) as count FROM evaluations WHERE evaluator_id = ? AND status = "submitted"',
+        'SELECT COUNT(*) as count FROM evaluations WHERE evaluator_id = ? AND status = \'submitted\'',
         [decoded.userId]
       );
       const submittedEvaluations = submittedResult[0]?.count || 0;
@@ -96,11 +96,11 @@ export async function GET(request: NextRequest) {
       try {
         // Use evaluatee_id to include peer evaluations (which have course_id = NULL)
         const trendResult: any = await query(
-          `SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
+          `SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
            FROM evaluation_responses er
            JOIN evaluations e ON er.evaluation_id = e.id
            WHERE e.status = 'submitted' AND e.evaluatee_id = ?
-           GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
+           GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
            ORDER BY period`,
           [decoded.userId]
         );
@@ -108,11 +108,11 @@ export async function GET(request: NextRequest) {
 
         // department-wide trend for comparison
         const deptTrendResult: any = await query(
-          `SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
+          `SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
            FROM evaluation_responses er
            JOIN evaluations e ON er.evaluation_id = e.id
            WHERE e.status = 'submitted'
-           GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
+           GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
            ORDER BY period`
         );
         const departmentTrend = (deptTrendResult || []).map((r: any) => ({ period: r.period, score: Number.parseFloat(r.avg_score) }));
@@ -184,7 +184,7 @@ export async function GET(request: NextRequest) {
       const totalEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations');
       const totalEvaluations = totalEvaluationsResult[0]?.count || 0;
 
-      const submittedEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations WHERE status = "submitted"');
+      const submittedEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations WHERE status = \'submitted\'');
       const submittedEvaluations = submittedEvaluationsResult[0]?.count || 0;
 
       const evaluationRate = totalEvaluations > 0 
@@ -193,18 +193,18 @@ export async function GET(request: NextRequest) {
 
       // breakdown by role
       const roleCounts: any = await query('SELECT role, COUNT(*) as count FROM users GROUP BY role');
-      const totalStudents = roleCounts.find((r: any) => r.role === 'student')?.count || 0;
-      const totalTeachers = roleCounts.find((r: any) => r.role === 'teacher')?.count || 0;
+      const totalStudents = Number(roleCounts.find((r: any) => r.role === 'student')?.count || 0);
+      const totalTeachers = Number(roleCounts.find((r: any) => r.role === 'teacher')?.count || 0);
 
       // performance trend by month
       const trendQuery = `
-        SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
+        SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
         FROM evaluation_responses er
         JOIN evaluations e ON er.evaluation_id = e.id
         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
         WHERE e.status = 'submitted' AND e.submitted_at IS NOT NULL
         ${periodId && periodId !== 'all' ? 'AND ep.academic_period_id = ?' : ''}
-        GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
+        GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
         ORDER BY period
       `;
       const trendResult: any = await query(trendQuery, periodParams);
@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
       const programQuery = `
         SELECT c.academic_year as program,
                 COUNT(*) as total,
-                SUM(e.status = 'submitted') as completed
+                COUNT(*) FILTER (WHERE e.status = 'submitted') as completed
          FROM evaluations e
          JOIN courses c ON e.course_id = c.id
          LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
@@ -225,11 +225,11 @@ export async function GET(request: NextRequest) {
       const programCompletion = (programResult || []).map((r: any) => ({
         name: r.program,
         students: r.total,
-        completion: r.total > 0 ? Math.round((r.completed / r.total) * 100) : 0,
+        completion: r.total > 0 ? Math.round((Number(r.completed) / Number(r.total)) * 100) : 0,
       }));
 
       // active evaluation period
-      const activePeriodResult: any = await query('SELECT * FROM evaluation_periods WHERE status = "active" LIMIT 1');
+      const activePeriodResult: any = await query('SELECT * FROM evaluation_periods WHERE status = \'active\' LIMIT 1');
       const activePeriod = activePeriodResult[0] || null;
 
       // calculate top performing instructors by average rating

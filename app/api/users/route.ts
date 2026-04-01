@@ -157,34 +157,36 @@ export async function PATCH(request: NextRequest) {
 
       if (program && finalYearLevel && finalSection) {
         // Find the active academic period to get semester
-        const activePeriod: any = await queryOne(
-          'SELECT id, semester FROM academic_periods WHERE is_active = 1 LIMIT 1'
-        );
-
-        if (activePeriod) {
-          // Remove old block enrollments for this student in courses matching the program + active period
-          await query(
-            `DELETE ce FROM course_enrollments ce
-             JOIN courses c ON ce.course_id = c.id
-             WHERE ce.student_id = ?
-               AND c.course_program = ?
-               AND c.semester = ?`,
-            [targetUserId, program, activePeriod.semester]
+          const activePeriod: any = await queryOne(
+            'SELECT id, semester FROM academic_periods WHERE is_active = TRUE LIMIT 1'
           );
 
-          // Enroll in matching courses
-          const result: any = await query(
-            `INSERT IGNORE INTO course_enrollments (course_id, student_id)
-             SELECT c.id, ?
-             FROM courses c
-             WHERE c.course_program = ?
-               AND c.year_level = ?
-               AND c.section = ?
-               AND c.semester = ?`,
-            [targetUserId, program, finalYearLevel, finalSection, activePeriod.semester]
-          );
-          enrolledCount = result?.affectedRows || 0;
-        }
+          if (activePeriod) {
+            // Remove old block enrollments for this student in courses matching the program + active period (Postgres USING syntax)
+            await query(
+              `DELETE FROM course_enrollments ce
+               USING courses c 
+               WHERE ce.course_id = c.id
+                 AND ce.student_id = ?
+                 AND c.course_program = ?
+                 AND c.semester = ?`,
+              [targetUserId, program, activePeriod.semester]
+            );
+
+            // Enroll in matching courses (Postgres ON CONFLICT syntax)
+            const result: any = await query(
+              `INSERT INTO course_enrollments (course_id, student_id)
+               SELECT c.id, ?
+               FROM courses c
+               WHERE c.course_program = ?
+                 AND c.year_level = ?
+                 AND c.section = ?
+                 AND c.semester = ?
+               ON CONFLICT (student_id, course_id) DO NOTHING`,
+              [targetUserId, program, finalYearLevel, finalSection, activePeriod.semester]
+            );
+            enrolledCount = result?.rowCount || 0;
+          }
 
         // Wipe old/unassigned pending evaluations
         await query(
@@ -247,27 +249,28 @@ export async function POST(request: NextRequest) {
 
     const newId = uuidv4();
     await query(
-      'INSERT INTO users (id, name, email, password, role, course, year_level, section, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
+      'INSERT INTO users (id, name, email, password, role, course, year_level, section, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
       [newId, name, email, password, role, course || null, year_level || null, section || null]
     );
 
     let enrolledCount = 0;
     if (role === 'student' && course && year_level && section) {
       const activePeriod: any = await queryOne(
-        'SELECT id, semester FROM academic_periods WHERE is_active = 1 LIMIT 1'
+        'SELECT id, semester FROM academic_periods WHERE is_active = TRUE LIMIT 1'
       );
       if (activePeriod) {
         const result: any = await query(
-          `INSERT IGNORE INTO course_enrollments (course_id, student_id)
+          `INSERT INTO course_enrollments (course_id, student_id)
            SELECT c.id, ?
            FROM courses c
            WHERE c.course_program = ?
              AND c.year_level = ?
              AND c.section = ?
-             AND c.semester = ?`,
+             AND c.semester = ?
+           ON CONFLICT (student_id, course_id) DO NOTHING`,
           [newId, course, year_level, section, activePeriod.semester]
         );
-        enrolledCount = result?.affectedRows || 0;
+        enrolledCount = result?.rowCount || 0;
       }
     }
 

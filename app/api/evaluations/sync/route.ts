@@ -55,7 +55,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
   let enrollmentsCreated = 0;
 
   try {
-    const user: any = await queryOne('SELECT * FROM users WHERE id = ? AND is_active = 1', [userId]);
+    const user: any = await queryOne('SELECT * FROM users WHERE id = ? AND is_active = TRUE', [userId]);
     if (!user) {
       return NextResponse.json({ error: 'User not found or inactive' }, { status: 404 });
     }
@@ -64,7 +64,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
     const activePeriods: any = await query(
       `SELECT ep.*, ef.type as form_type
        FROM evaluation_periods ep
-       LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id
+       LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)
        WHERE ep.status = 'active'`
     );
 
@@ -76,7 +76,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
       if (role === 'teacher' && period.form_type === 'peer-review') {
         // Peer-review: ensure this teacher has pairwise evaluations with all other active teachers
         const otherTeachers: any = await query(
-          `SELECT id FROM users WHERE role = 'teacher' AND is_active = 1 AND id != ?`,
+          `SELECT id FROM users WHERE role = 'teacher' AND is_active = TRUE AND id != ?`,
           [userId]
         );
 
@@ -185,10 +185,10 @@ export async function syncUserEvaluations(userId: string, role: string) {
             if (!course) {
               const insertResult: any = await query(
                 `INSERT INTO courses (code, name, teacher_id, section, course_program, year_level, academic_year, semester)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
                 [code, subjectName, instructorId, section, program, yearNum, period.academic_year, semesterNum]
               );
-              course = { id: insertResult.insertId };
+              course = { id: insertResult[0]?.id };
               coursesCreated++;
             }
 
@@ -196,9 +196,9 @@ export async function syncUserEvaluations(userId: string, role: string) {
 
             // Create enrollment if needed
             await query(
-              `INSERT IGNORE INTO course_enrollments (course_id, student_id) VALUES (?, ?)`,
+              `INSERT INTO course_enrollments (course_id, student_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
               [courseId, userId]
-            ).then((r: any) => { enrollmentsCreated += r?.affectedRows || 0; });
+            ).then((r: any) => { enrollmentsCreated += Number(r?.rowCount) || 0; });
 
             // Create evaluation if it doesn't exist
             const exists: any = await queryOne(

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     let sqlQuery = 'SELECT c.id, c.entity_type, c.entity_id, c.author_id, u.name as author_name, u.role as author_role, c.content, c.rating, c.meta_json, c.created_at FROM comments c LEFT JOIN users u ON c.author_id = u.id WHERE c.entity_type = ? AND c.entity_id = ?';
     if (decoded.role !== 'dean') {
-      sqlQuery += ' AND c.is_archived = 0';
+      sqlQuery += ' AND c.is_archived = FALSE';
     }
     sqlQuery += ' ORDER BY c.created_at DESC';
 

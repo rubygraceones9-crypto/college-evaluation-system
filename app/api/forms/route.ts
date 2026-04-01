@@ -39,10 +39,10 @@ async function loadFormCriteria(formId: number) {
 async function saveFormCriteria(formId: number, criteria: any[]) {
   for (const c of criteria) {
     const critResult: any = await query(
-      'INSERT INTO evaluation_criteria (form_id, name, description, weight, max_score) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO evaluation_criteria (form_id, name, description, weight, max_score) VALUES (?, ?, ?, ?, ?) RETURNING id',
       [formId, c.name, c.description || null, c.weight, c.maxScore || 5]
     );
-    const criteriaId = critResult.insertId;
+    const criteriaId = critResult[0]?.id;
 
     if (Array.isArray(c.questions)) {
       for (const q of c.questions) {
@@ -121,10 +121,10 @@ export async function POST(request: NextRequest) {
 
     // 1. Insert the form
     const result: any = await query(
-      'INSERT INTO evaluation_forms (name, description, type) VALUES (?, ?, ?)',
+      'INSERT INTO evaluation_forms (name, description, type) VALUES (?, ?, ?) RETURNING id',
       [name, description || '', type]
     );
-    const formId = result.insertId;
+    const formId = result[0]?.id;
 
     // 2. Insert criteria + questions
     await saveFormCriteria(formId, criteria);

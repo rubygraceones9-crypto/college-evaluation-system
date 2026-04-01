@@ -79,10 +79,10 @@ export async function POST(request: NextRequest) {
 
     const result: any = await query(
       `INSERT INTO academic_periods (name, academic_year, semester, start_date, end_date, is_active)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [name, academic_year, semester, start_date, end_date, is_active ? 1 : 0]
+       VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+      [name, academic_year, semester, start_date, end_date, !!is_active]
     );
-    const inserted = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [result.insertId]);
+    const inserted = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [result[0]?.id]);
     return NextResponse.json({ success: true, period: inserted });
   } catch (error) {
     console.error('Academic periods POST error:', error);
@@ -140,14 +140,14 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    if (updates.is_archived === 0) {
+    if (updates.is_archived === false) {
       const pToUnlock: any = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [id]);
       if (pToUnlock) {
-        await query('UPDATE courses SET is_archived = 0 WHERE academic_year = ? AND semester = ?', [pToUnlock.academic_year, pToUnlock.semester]);
+        await query('UPDATE courses SET is_archived = FALSE WHERE academic_year = ? AND semester = ?', [pToUnlock.academic_year, pToUnlock.semester]);
         await query('UPDATE evaluation_periods SET status = \'active\' WHERE academic_period_id = ? AND status = \'closed\'', [id]);
-        await query('UPDATE evaluations SET is_archived = 0 WHERE period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)', [id]);
+        await query('UPDATE evaluations SET is_archived = FALSE WHERE period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)', [id]);
         await query('UPDATE evaluations SET status = \'pending\' WHERE status = \'locked\' AND period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)', [id]);
-        await query('UPDATE comments SET is_archived = 0 WHERE created_at >= ? AND created_at <= ?', [pToUnlock.start_date, pToUnlock.end_date]);
+        await query('UPDATE comments SET is_archived = FALSE WHERE created_at >= ? AND created_at <= ?', [pToUnlock.start_date, pToUnlock.end_date]);
       }
     }
 
@@ -208,18 +208,20 @@ export async function DELETE(request: NextRequest) {
 
     // Deep cascade: Delete all evaluation responses linked to evaluations inside this academic period
     await query(
-      `DELETE er FROM evaluation_responses er
-       JOIN evaluations e ON er.evaluation_id = e.id
-       JOIN evaluation_periods ep ON e.period_id = ep.id
-       WHERE ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?)`,
+      `DELETE FROM evaluation_responses er
+       USING evaluations e, evaluation_periods ep
+       WHERE er.evaluation_id = e.id 
+         AND e.period_id = ep.id
+         AND (ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?))`,
       [id, targetPeriod?.academic_year || 'NULL_FALLBACK', targetPeriod?.semester || 'NULL_FALLBACK']
     );
 
     // Deep cascade: Delete evaluations inside this academic period
     await query(
-      `DELETE e FROM evaluations e
-       JOIN evaluation_periods ep ON e.period_id = ep.id
-       WHERE ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?)`,
+      `DELETE FROM evaluations e
+       USING evaluation_periods ep
+       WHERE e.period_id = ep.id
+         AND (ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?))`,
       [id, targetPeriod?.academic_year || 'NULL_FALLBACK', targetPeriod?.semester || 'NULL_FALLBACK']
     );
 

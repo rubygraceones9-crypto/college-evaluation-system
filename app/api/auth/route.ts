@@ -101,9 +101,9 @@ async function handleEmailLogin(
       [user.id, 'LOGIN', 'User login via email', clientIp, userAgent, 'success']
     );
 
-    // Create session record
+    // Create session record (Postgres Interval syntax)
     await query(
-      'INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))',
+      'INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, NOW() + INTERVAL \'24 hours\')',
       [user.id, token, clientIp, userAgent]
     );
 
@@ -192,12 +192,12 @@ async function handleSignup(
     // Insert user into database
     if (role === 'student') {
       await query(
-        'INSERT INTO users (id, name, email, course, year_level, section, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
+        'INSERT INTO users (id, name, email, course, year_level, section, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
         [userId, name, email, course, yearLevel ? Number(yearLevel) : null, section || null, password, role]
       );
     } else {
       await query(
-        'INSERT INTO users (id, name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, 1)',
+        'INSERT INTO users (id, name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, TRUE)',
         [userId, name, email, password, role]
       );
     }

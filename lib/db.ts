@@ -25,27 +25,28 @@ if (process.env.NODE_ENV !== 'production') {
  */
 function translateSql(sql: string) {
   let index = 1;
-  const cleanedSql = sql.replace(/`/g, '"'); // Postgres likes double-quotes for identifiers if needed, but none is often better
+  // Strip backticks entirely as they often cause case-sensitivity issues in Postgres
+  const cleanedSql = sql.replace(/`/g, ''); 
   return cleanedSql.replace(/\?/g, () => `$${index++}`);
 }
 
 export async function query(sql: string, values?: any[]) {
   try {
-    const client = await pool.connect();
-    try {
-      // Postgres uses $1, $2 instead of ?
-      const translatedSql = translateSql(sql);
-      const res = values 
-        ? await client.query(translatedSql, values) 
-        : await client.query(translatedSql);
-      
-      // Return .rows to match the previous mysql2 [results] format
-      return res.rows || [];
-    } finally {
-      client.release();
+    const translatedSql = translateSql(sql);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('DB_QUERY:', { sql: translatedSql, values });
     }
-  } catch (error) {
-    console.warn('DB query failed, returning empty result:', error);
+
+    const res = await pool.query(translatedSql, values || []);
+    return res.rows || [];
+  } catch (error: any) {
+    console.error('DATABASE_ERROR:', {
+      sql,
+      message: error.message,
+      detail: error.detail,
+    });
+    // Return empty array instead of crashing to prevent 502s on soft-failures
     return [];
   }
 }
