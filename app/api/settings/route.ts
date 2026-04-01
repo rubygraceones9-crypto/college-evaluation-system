@@ -13,8 +13,8 @@ export async function GET() {
       CREATE TABLE IF NOT EXISTS system_settings (
         setting_key VARCHAR(100) PRIMARY KEY,
         setting_value TEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     const result = await query('SELECT setting_key, setting_value FROM system_settings');
@@ -51,8 +51,8 @@ export async function PATCH(request: NextRequest) {
       CREATE TABLE IF NOT EXISTS system_settings (
         setting_key VARCHAR(100) PRIMARY KEY,
         setting_value TEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // Loop through object and upsert
@@ -60,15 +60,15 @@ export async function PATCH(request: NextRequest) {
     for (const key of keys) {
       let value = body[key];
       // Convert booleans or objects to string JSON for safe text storage
-      if (typeof value === 'boolean' || typeof value === 'object') {
+      if (typeof value === 'boolean' || typeof value === 'object' || Array.isArray(value)) {
         value = JSON.stringify(value);
       }
       
       await query(
         `INSERT INTO system_settings (setting_key, setting_value) 
          VALUES (?, ?)
-         ON DUPLICATE KEY UPDATE setting_value = ?`,
-        [key, String(value), String(value)]
+         ON CONFLICT (setting_key) DO UPDATE SET setting_value = EXCLUDED.setting_value`,
+        [key, String(value)]
       );
     }
 
