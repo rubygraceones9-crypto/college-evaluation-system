@@ -8,13 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
-    "db:migrate": "node tools/migrate.js",
-    "db:seed": "node tools/seed.js",
+    "db:migrate": "node tools/migrate_neon.js",
+    "db:seed": "node tools/seed_neon.js",
     "db:init": "npm run db:migrate && npm run db:seed",
-    "db:admin": "node tools/create-admin.js",
-    "db:reset": "node tools/reset.js",
-    "db:truncate": "node tools/truncate.js",
-    "db:fix": "node tools/migrate_schema_fixes.js"
+    "db:admin": "node tools/sync_admin_cloud.js"
   },
   "dependencies": {
     "@ducanh2912/next-pwa": "^10.2.9",

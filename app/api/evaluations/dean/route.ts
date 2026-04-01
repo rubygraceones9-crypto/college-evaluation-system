@@ -64,11 +64,11 @@ export async function POST(request: NextRequest) {
 
     const result: any = await query(
       `INSERT INTO evaluations (course_id, period_id, evaluatee_id, evaluator_id, evaluation_type, status)
-       VALUES (?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, 'pending') RETURNING id`,
       [course_id || null, period_id, evaluatee_id, deanId, evaluationType]
     );
 
-    return NextResponse.json({ success: true, evaluationId: result.insertId });
+    return NextResponse.json({ success: true, evaluationId: result[0]?.id });
   } catch (error) {
     console.error('Dean evaluation error:', error);
     return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });
