@@ -1,7 +1,7 @@
 
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
+const JWT_SECRET = process.env.JWT_SECRET || 'secret';
 
 export interface DecodedToken {
   userId: string;
@@ -27,24 +27,12 @@ export function generateToken(userId: string, role: string): string {
  */
 export function verifyToken(token: string): DecodedToken | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] }) as DecodedToken;
+    const decoded = jwt.verify(token, JWT_SECRET) as DecodedToken;
     // Ensure both userId and id are present for compatibility
     if (decoded.userId && !decoded.id) decoded.id = decoded.userId;
     if (decoded.id && !decoded.userId) decoded.userId = decoded.id;
     return decoded;
   } catch (error) {
-    if (error) console.debug('JWT error');
     return null;
   }
-}
-
-/**
- * Extracts bearer token from NextRequest
- */
-export function getAuthToken(request: any): string | null {
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) {
-    return null;
-  }
-  return authHeader.substring(7);
 }

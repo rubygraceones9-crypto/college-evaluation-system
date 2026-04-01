@@ -1,52 +1,40 @@
-import { Pool } from 'pg';
+import mysql from 'mysql2/promise';
 
-// For Neon Cloud, we use a single connection string (DATABASE_URL or DATABASE_URI)
-const connectionString = process.env.DATABASE_URL || process.env.DATABASE_URI;
+// Prevent connection leaks during Next.js hot reloads in development.
+// Without this, every HMR cycle creates a new pool while the old one's
+// connections stay open, eventually exhausting MySQL's max_connections.
+const globalForDb = globalThis as unknown as { __dbPool?: mysql.Pool };
 
-const globalForDb = globalThis as unknown as { __dbPool?: Pool };
-
-const pool = globalForDb.__dbPool ?? new Pool({
-  connectionString,
-  ssl: {
-    rejectUnauthorized: false
-  },
-  max: 20, // Increased for concurrent Cloud users
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000, // 10s wait for Neon to wake up
+const pool = globalForDb.__dbPool ?? mysql.createPool({
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '',
+  database: process.env.DB_NAME || 'cite_es',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0,
+  dateStrings: true,
 });
 
 if (process.env.NODE_ENV !== 'production') {
   globalForDb.__dbPool = pool;
 }
 
-/**
- * Helper to translate MySQL style '?' to Postgres style '$1, $2...'
- * Also strips MySQL backticks (`) which Postgres doesn't like.
- */
-function translateSql(sql: string) {
-  let index = 1;
-  // Strip backticks entirely as they often cause case-sensitivity issues in Postgres
-  const cleanedSql = sql.replace(/`/g, ''); 
-  return cleanedSql.replace(/\?/g, () => `$${index++}`);
-}
-
 export async function query(sql: string, values?: any[]) {
   try {
-    const translatedSql = translateSql(sql);
-    
-    if (process.env.NODE_ENV !== 'production') {
-      console.log('DB_QUERY:', { sql: translatedSql, values });
+    const connection = await pool.getConnection();
+    try {
+      const [results] = values
+        ? await connection.execute(sql, values)
+        : await connection.execute(sql);
+      return results;
+    } finally {
+      connection.release();
     }
-
-    const res = await pool.query(translatedSql, values || []);
-    return res.rows || [];
-  } catch (error: any) {
-    console.error('DATABASE_ERROR:', {
-      sql,
-      message: error.message,
-      detail: error.detail,
-    });
-    // Return empty array instead of crashing to prevent 502s on soft-failures
+  } catch (error) {
+    // If the database is unavailable, fall back to empty results.
+    // This allows the app to run without a database while still rendering.
+    console.warn('DB query failed, returning empty result:', error);
     return [];
   }
 }

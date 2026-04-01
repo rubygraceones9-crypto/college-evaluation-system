@@ -1,21 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
-import { verifyToken, getAuthToken } from '@/lib/auth';
 
+let jwt: any = null;
 
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
 
-/**
- * Handles the HTTP GET request securely.
- * Verifies the authorization bearer token natively via abstract logic.
- * Prevents access if user does not match the scoped role mapping.
- */
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return null;
+  }
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    const decoded = jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
@@ -33,19 +53,14 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -79,10 +94,10 @@ export async function POST(request: NextRequest) {
 
     const result: any = await query(
       `INSERT INTO academic_periods (name, academic_year, semester, start_date, end_date, is_active)
-       VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-      [name, academic_year, semester, start_date, end_date, !!is_active]
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [name, academic_year, semester, start_date, end_date, is_active ? 1 : 0]
     );
-    const inserted = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [result[0]?.id]);
+    const inserted = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [result.insertId]);
     return NextResponse.json({ success: true, period: inserted });
   } catch (error) {
     console.error('Academic periods POST error:', error);
@@ -90,18 +105,14 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP PATCH request securely.
- * Applies partial structural updates reliably over database.
- */
 export async function PATCH(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -139,18 +150,6 @@ export async function PATCH(request: NextRequest) {
         }
       }
     }
-
-    if (updates.is_archived === false) {
-      const pToUnlock: any = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [id]);
-      if (pToUnlock) {
-        await query('UPDATE courses SET is_archived = FALSE WHERE academic_year = ? AND semester = ?', [pToUnlock.academic_year, pToUnlock.semester]);
-        await query('UPDATE evaluation_periods SET status = \'active\' WHERE academic_period_id = ? AND status = \'closed\'', [id]);
-        await query('UPDATE evaluations SET is_archived = FALSE WHERE period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)', [id]);
-        await query('UPDATE evaluations SET status = \'pending\' WHERE status = \'locked\' AND period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)', [id]);
-        await query('UPDATE comments SET is_archived = FALSE WHERE created_at >= ? AND created_at <= ?', [pToUnlock.start_date, pToUnlock.end_date]);
-      }
-    }
-
     const sets = fields.map(f => `${f} = ?`).join(', ');
     const values = fields.map(f => (updates as any)[f]);
     values.push(id);
@@ -163,18 +162,14 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP DELETE request securely.
- * Ensures isolated teardowns leveraging foreign cascaded keys securely.
- */
 export async function DELETE(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -183,55 +178,6 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ error: 'id query param required' }, { status: 400 });
     }
-
-    const targetPeriod: any = await queryOne('SELECT * FROM academic_periods WHERE id = ?', [id]);
-
-    if (targetPeriod) {
-      // Deep cascade: Purge anonymous textual feedbacks submitted during this specific academic timeframe
-      await query(
-        'DELETE FROM comments WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?', 
-        [targetPeriod.start_date, targetPeriod.end_date]
-      );
-
-      // Deep cascade: Nuke active enrollments attached to courses mapped under this academic semester
-      await query(
-        'DELETE FROM course_enrollments WHERE course_id IN (SELECT id FROM courses WHERE academic_year = ? AND semester = ?)', 
-        [targetPeriod.academic_year, targetPeriod.semester]
-      );
-
-      // Deep cascade: Delete the physical courses generated and attached to this academic semantic frame
-      await query(
-        'DELETE FROM courses WHERE academic_year = ? AND semester = ?', 
-        [targetPeriod.academic_year, targetPeriod.semester]
-      );
-    }
-
-    // Deep cascade: Delete all evaluation responses linked to evaluations inside this academic period
-    await query(
-      `DELETE FROM evaluation_responses er
-       USING evaluations e, evaluation_periods ep
-       WHERE er.evaluation_id = e.id 
-         AND e.period_id = ep.id
-         AND (ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?))`,
-      [id, targetPeriod?.academic_year || 'NULL_FALLBACK', targetPeriod?.semester || 'NULL_FALLBACK']
-    );
-
-    // Deep cascade: Delete evaluations inside this academic period
-    await query(
-      `DELETE FROM evaluations e
-       USING evaluation_periods ep
-       WHERE e.period_id = ep.id
-         AND (ep.academic_period_id = ? OR (ep.academic_year = ? AND ep.semester = ?))`,
-      [id, targetPeriod?.academic_year || 'NULL_FALLBACK', targetPeriod?.semester || 'NULL_FALLBACK']
-    );
-
-    // Deep cascade: Delete evaluation periods linked to this academic period
-    await query(
-      'DELETE FROM evaluation_periods WHERE academic_period_id = ? OR (academic_year = ? AND semester = ?)', 
-      [id, targetPeriod?.academic_year || 'NULL_FALLBACK', targetPeriod?.semester || 'NULL_FALLBACK']
-    );
-
-    // Finally, delete the academic period itself
     await query('DELETE FROM academic_periods WHERE id = ?', [id]);
     return NextResponse.json({ success: true });
   } catch (error) {

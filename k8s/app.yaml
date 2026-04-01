@@ -40,7 +40,6 @@ spec:
         app: college-eval-system
         component: web
     spec:
-      automountServiceAccountToken: false
       containers:
       - name: college-eval-app
         image: rubyones/college-evaluation-system:latest # Replace with your dockerhub repo, e.g. <username>/college-eval-system:latest
@@ -52,11 +51,6 @@ spec:
             name: app-config
         - secretRef:
             name: app-secrets
-        resources:
-          limits:
-            memory: "512Mi"
-          requests:
-            memory: "256Mi"
         # Optional: readiness and liveness probes
         readinessProbe:
           httpGet:

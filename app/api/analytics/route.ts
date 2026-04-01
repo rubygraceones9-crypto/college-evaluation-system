@@ -1,14 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '@/lib/db';
-import { verifyToken, getAuthToken } from '@/lib/auth';
+import { query, queryOne } from '@/lib/db';
 
+let jwt: any = null;
 
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
 
-/**
- * Handles the HTTP GET request securely.
- * Verifies the authorization bearer token natively via abstract logic.
- * Prevents access if user does not match the scoped role mapping.
- */
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ') ) {
+    return null;
+  }
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    const decoded = jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -19,7 +39,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json(
         { error: 'Invalid token' },
@@ -45,7 +65,7 @@ export async function GET(request: NextRequest) {
       const totalEvaluations = evaluationsResult[0]?.count || 0;
 
       const submittedResult: any = await query(
-        'SELECT COUNT(*) as count FROM evaluations WHERE evaluator_id = ? AND status = \'submitted\'',
+        'SELECT COUNT(*) as count FROM evaluations WHERE evaluator_id = ? AND status = "submitted"',
         [decoded.userId]
       );
       const submittedEvaluations = submittedResult[0]?.count || 0;
@@ -96,11 +116,11 @@ export async function GET(request: NextRequest) {
       try {
         // Use evaluatee_id to include peer evaluations (which have course_id = NULL)
         const trendResult: any = await query(
-          `SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
+          `SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
            FROM evaluation_responses er
            JOIN evaluations e ON er.evaluation_id = e.id
            WHERE e.status = 'submitted' AND e.evaluatee_id = ?
-           GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
+           GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
            ORDER BY period`,
           [decoded.userId]
         );
@@ -108,11 +128,11 @@ export async function GET(request: NextRequest) {
 
         // department-wide trend for comparison
         const deptTrendResult: any = await query(
-          `SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
+          `SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
            FROM evaluation_responses er
            JOIN evaluations e ON er.evaluation_id = e.id
            WHERE e.status = 'submitted'
-           GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
+           GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
            ORDER BY period`
         );
         const departmentTrend = (deptTrendResult || []).map((r: any) => ({ period: r.period, score: Number.parseFloat(r.avg_score) }));
@@ -164,17 +184,6 @@ export async function GET(request: NextRequest) {
       }
     } else if (decoded.role === 'dean' || decoded.role === 'admin') {
       // System-wide analytics
-      const url = new URL(request.url);
-      const periodId = url.searchParams.get('periodId');
-      
-      let periodFilter = '';
-      let periodParams: any[] = [];
-      
-      if (periodId && periodId !== 'all') {
-        periodFilter = 'WHERE ep.academic_period_id = ?';
-        periodParams = [periodId];
-      }
-
       const totalUsersResult: any = await query('SELECT COUNT(*) as count FROM users');
       const totalUsers = totalUsersResult[0]?.count || 0;
 
@@ -184,7 +193,7 @@ export async function GET(request: NextRequest) {
       const totalEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations');
       const totalEvaluations = totalEvaluationsResult[0]?.count || 0;
 
-      const submittedEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations WHERE status = \'submitted\'');
+      const submittedEvaluationsResult: any = await query('SELECT COUNT(*) as count FROM evaluations WHERE status = "submitted"');
       const submittedEvaluations = submittedEvaluationsResult[0]?.count || 0;
 
       const evaluationRate = totalEvaluations > 0 
@@ -193,63 +202,55 @@ export async function GET(request: NextRequest) {
 
       // breakdown by role
       const roleCounts: any = await query('SELECT role, COUNT(*) as count FROM users GROUP BY role');
-      const totalStudents = Number(roleCounts.find((r: any) => r.role === 'student')?.count || 0);
-      const totalTeachers = Number(roleCounts.find((r: any) => r.role === 'teacher')?.count || 0);
+      const totalStudents = roleCounts.find((r: any) => r.role === 'student')?.count || 0;
+      const totalTeachers = roleCounts.find((r: any) => r.role === 'teacher')?.count || 0;
 
       // performance trend by month
-      const trendQuery = `
-        SELECT TO_CHAR(e.submitted_at, 'YYYY-MM') as period, AVG(er.rating) as avg_score
-        FROM evaluation_responses er
-        JOIN evaluations e ON er.evaluation_id = e.id
-        LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
-        WHERE e.status = 'submitted' AND e.submitted_at IS NOT NULL
-        ${periodId && periodId !== 'all' ? 'AND ep.academic_period_id = ?' : ''}
-        GROUP BY TO_CHAR(e.submitted_at, 'YYYY-MM')
-        ORDER BY period
-      `;
-      const trendResult: any = await query(trendQuery, periodParams);
+      const trendResult: any = await query(
+        `SELECT DATE_FORMAT(e.submitted_at, '%Y-%m') as period, AVG(er.rating) as avg_score
+         FROM evaluation_responses er
+         JOIN evaluations e ON er.evaluation_id = e.id
+         WHERE e.status = 'submitted' AND e.submitted_at IS NOT NULL
+         GROUP BY DATE_FORMAT(e.submitted_at, '%Y-%m')
+         ORDER BY period`
+      );
       const performanceTrend = (trendResult || []).map((r: any) => ({ period: r.period, score: Number.parseFloat(r.avg_score) }));
 
-      // program completion by academic year
-      const programQuery = `
-        SELECT c.academic_year as program,
+      // program completion by academic year (proxy for program)
+      const programResult: any = await query(
+        `SELECT c.academic_year as program,
                 COUNT(*) as total,
-                COUNT(*) FILTER (WHERE e.status = 'submitted') as completed
+                SUM(e.status = 'submitted') as completed
          FROM evaluations e
          JOIN courses c ON e.course_id = c.id
-         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
-         ${periodId && periodId !== 'all' ? 'WHERE ep.academic_period_id = ?' : ''}
-         GROUP BY c.academic_year
-      `;
-      const programResult: any = await query(programQuery, periodParams);
+         GROUP BY c.academic_year`
+      );
       const programCompletion = (programResult || []).map((r: any) => ({
         name: r.program,
         students: r.total,
-        completion: r.total > 0 ? Math.round((Number(r.completed) / Number(r.total)) * 100) : 0,
+        completion: r.total > 0 ? Math.round((r.completed / r.total) * 100) : 0,
       }));
 
       // active evaluation period
-      const activePeriodResult: any = await query('SELECT * FROM evaluation_periods WHERE status = \'active\' LIMIT 1');
+      const activePeriodResult: any = await query('SELECT * FROM evaluation_periods WHERE status = "active" LIMIT 1');
       const activePeriod = activePeriodResult[0] || null;
 
       // calculate top performing instructors by average rating
-      // Joins through evaluation_periods to filter by academic_period_id if provided
-      const instructorsQuery = `
-        SELECT u.id, u.name, AVG(er.rating) as avg_score
-        FROM users u
-        LEFT JOIN evaluations e ON u.id = e.evaluatee_id 
-             AND e.status = 'submitted'
-             ${periodId && periodId !== 'all' ? 'AND e.period_id IN (SELECT id FROM evaluation_periods WHERE academic_period_id = ?)' : ''}
-        LEFT JOIN evaluation_responses er ON e.id = er.evaluation_id
-        WHERE u.role = 'teacher'
-        GROUP BY u.id, u.name
-        ORDER BY avg_score DESC
-      `;
-      const instructorsResult: any = await query(instructorsQuery, periodParams);
+      const instructorsResult: any = await query(
+        `SELECT u.id, u.name, AVG(er.rating) as avg_score
+         FROM evaluation_responses er
+         JOIN evaluations e ON er.evaluation_id = e.id
+         JOIN courses c ON e.course_id = c.id
+         JOIN users u ON c.teacher_id = u.id
+         WHERE e.status = 'submitted'
+         GROUP BY u.id
+         ORDER BY avg_score DESC
+         LIMIT 5`
+      );
       const topInstructors = (instructorsResult || []).map((r: any, idx: number) => ({
         rank: idx + 1,
         instructor: { name: r.name },
-        overallScore: Number.parseFloat(r.avg_score || 0).toFixed(2),
+        overallScore: Number.parseFloat(r.avg_score).toFixed ? Number.parseFloat(r.avg_score).toFixed(2) : r.avg_score,
       }));
 
       analytics = {

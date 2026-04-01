@@ -75,7 +75,7 @@ export default function Chatbot() {
       {/* Bot Chat Window */}
       {isOpen && (
         <div 
-          className="mb-4 w-[350px] sm:w-[400px] h-[500px] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden animate-slideUp transition-all"
+          className="mb-4 w-[350px] sm:w-[400px] h-[500px] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden animate-slide-up transition-all"
         >
           {/* Header */}
           <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 flex items-center justify-between text-white">
@@ -176,16 +176,6 @@ export default function Chatbot() {
         </span>
       </button>
 
-      <style jsx>{`
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px) scale(0.95); }
-          to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        .animate-slideUp {
-          animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-          transform-origin: bottom right;
-        }
-      `}</style>
     </div>
   );
 }

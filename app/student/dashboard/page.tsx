@@ -9,215 +9,354 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { AnimatedCounter } from '@/components/animations/AnimatedCounter';
 import { DashboardSkeleton } from '@/components/loading/Skeletons';
-import { BookOpen, AlertCircle, CheckCircle, Clock, FileText, Target } from 'lucide-react';
+import { BookOpen, AlertCircle, CheckCircle, Clock, Download, FileText, Share2, BarChart3, Target } from 'lucide-react';
+import Link from 'next/link';
 import { useFetch } from '@/hooks';
+import { downloadPdf } from '@/utils/helpers';
 
-let syncFired = false;
 export default function StudentDashboard() {
   const router = useRouter();
   const { user } = useAuth();
-  const [refreshKey, setRefreshKey] = useState(0);
 
   // Just-In-Time: sync missing evaluations for late registrants on dashboard load
   useEffect(() => {
-    if (syncFired) return;
-    syncFired = true;
-    
     const token = typeof window !== 'undefined' ? sessionStorage.getItem('auth_token') : null;
     if (!token) return;
     const base = process.env.NEXT_PUBLIC_API_URL || '/api';
-
     fetch(`${base}/evaluations/sync`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    })
-      .then(() => {
-        // After sync, re-fetch student evaluations so dashboard reflects new assignments immediately
-        setRefreshKey((prev) => prev + 1);
-      })
-      .catch((err) => {
-        console.error('Error:', err);
-      });
+    }).catch(() => {});
   }, []);
 
-  const { data: evalData, loading: evalLoading } = useFetch<any>(`/evaluations?type=teacher&refresh=${refreshKey}`);
-  const { data: coursesData, loading: coursesLoading } = useFetch<any>(`/courses?refresh=${refreshKey}`);
-  const { data: periodData, loading: periodLoading } = useFetch<any>(`/evaluation_periods?status=active&refresh=${refreshKey}`);
+  const { data: evalData, loading: evalLoading } = useFetch<any>('/evaluations?type=teacher');
+  const { data: coursesData, loading: coursesLoading } = useFetch<any>('/courses');
+  const { data: periodData, loading: periodLoading } = useFetch<any>('/evaluation_periods?status=active');
 
   const isLoading = evalLoading || coursesLoading || periodLoading;
+
+  // Derived data
+  const activePeriod = periodData?.periods?.find((p: any) => p.form_type === 'student-to-teacher') || null;
+  const deadline = activePeriod?.end_date ? new Date(activePeriod.end_date) : null;
+  const daysUntilDeadline = deadline ? Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
+
+  // Filter to only student-to-teacher evaluations (exclude peer-review)
   const evaluations = (evalData?.evaluations || []).filter((e: any) => e.evaluation_type === 'teacher');
 
+  // Check period status for pending evaluations
   const pendingEvals = evaluations.filter((e: any) => {
     if (e.status === 'submitted' || e.status === 'locked') return false;
+    // Only count as pending if the period is still active
     const periodStatus = e.period?.status || e.period_status;
     return periodStatus === 'active';
   });
-
-  const systemActivePeriod = periodData?.periods?.[0];
-  const activePeriod = systemActivePeriod || (evaluations.length > 0 
-    ? (pendingEvals[0]?.period || evaluations[0]?.period) 
-    : null);
-
-  let deadline = null;
-  if (activePeriod?.end_date) {
-    const dateStr = String(activePeriod.end_date);
-    if (dateStr.includes('-')) {
-      const parts = dateStr.split('T')[0].split('-');
-      const y = parseInt(parts[0]);
-      const m = parseInt(parts[1]);
-      const d = parseInt(parts[2]);
-      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-        deadline = new Date(y, m - 1, d, 23, 59, 59, 999);
-      }
-    }
-  }
-  const deadlineStr = activePeriod?.end_date ? new Date(activePeriod.end_date).toLocaleDateString() : '';
-  const daysUntilDeadline = deadline ? Math.max(0, Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
-
+  const closedPendingEvals = evaluations.filter((e: any) => {
+    if (e.status === 'submitted' || e.status === 'locked') return false;
+    const periodStatus = e.period?.status || e.period_status;
+    return periodStatus === 'closed';
+  });
   const completedEvals = evaluations.filter((e: any) => e.status === 'submitted' || e.status === 'locked');
+
   const pendingCount = pendingEvals.length;
   const completedCount = completedEvals.length;
   const totalCount = evaluations.length;
+  const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
+  // Use enrolled courses count for display, but completion rate based on evaluations
   const enrolledCount = coursesData?.courses?.length || 0;
+
+  const downloadEvaluationReport = () => {
+    try {
+      const rows = evaluations.map((e: any) => ({
+        course: e.course_name || e.course?.name,
+        instructor: e.evaluatee_name || e.evaluatee?.name,
+        status: e.status,
+        date: e.submitted_at ? new Date(e.submitted_at).toLocaleDateString() : '-'
+      }));
+      
+      const header = ['Course', 'Instructor', 'Status', 'Date'];
+      const csv = [header.join(','), ...rows.map((r: any) => [r.course, r.instructor, r.status, r.date].join(','))].join('\n');
+      downloadPdf(csv, `evaluation-report-${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      alert('Failed to download report');
+    }
+  };
+
+  const handleStartEvaluation = () => {
+    router.push('/student/evaluations');
+  };
+
+  const handleViewResults = () => {
+    router.push('/student/history');
+  };
 
   if (isLoading) return <DashboardSkeleton />;
 
   return (
     <div className="space-y-8">
+      {/* Welcome Section */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Welcome back, {user?.name}!</h1>
-          <div className="flex flex-wrap items-center gap-2 mt-2">
-            <p className="text-gray-600 dark:text-gray-400">
-              {activePeriod ? `Evaluation Period: ${activePeriod.name}` : 'No active evaluation period'}
-            </p>
-            {activePeriod?.academic_year && (
-              <Badge variant="secondary" className="px-2 py-0.5 text-xs font-bold bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                S.Y. {activePeriod.academic_year}
-              </Badge>
-            )}
-          </div>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+            Welcome back, {user?.name}!
+          </h1>
+          <p className="text-gray-600 dark:text-gray-400 mt-2">
+            {activePeriod
+              ? `Evaluation Period: ${activePeriod.name}${activePeriod.academic_year ? ` — ${activePeriod.academic_year}` : ''}${activePeriod.semester ? ` ${activePeriod.semester}` : ''}`
+              : 'No active evaluation period'}
+          </p>
         </div>
+        <Button variant="outline" onClick={downloadEvaluationReport} className="gap-2">
+          <Download className="w-4 h-4" />
+          Export Report
+        </Button>
       </div>
 
+      {/* Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <DashboardCard
+          title="Completed"
+          value={<AnimatedCounter endValue={completedCount} />}
+          footer={`${completedCount} of ${totalCount} evaluations`}
+          icon={<CheckCircle className="w-6 h-6" />}
+          color="green"
+          trend={completedCount}
+        />
+        <DashboardCard
+          title="Pending"
+          value={<AnimatedCounter endValue={pendingCount} />}
+          footer={`${pendingCount} evaluations remaining`}
+          icon={<AlertCircle className="w-6 h-6" />}
+          color="red"
+          trend={-pendingCount}
+        />
+        <DashboardCard
+          title="Completion Rate"
+          value={<AnimatedCounter endValue={completionRate} suffix="%" />}
+          footer={`Progress: ${completionRate}%`}
+          icon={<BarChart3 className="w-6 h-6" />}
+          color="blue"
+          trend={completionRate}
+        />
+        <DashboardCard
+          title="Enrolled Courses"
+          value={<AnimatedCounter endValue={enrolledCount} />}
+          footer="Current semester"
+          icon={<BookOpen className="w-6 h-6" />}
+          color="blue"
+        />
+        <DashboardCard
+          title="Days Left"
+          value={<AnimatedCounter endValue={daysUntilDeadline} />}
+          footer={deadline ? `Deadline: ${deadline.toLocaleDateString()}` : 'No deadline'}
+          icon={<Clock className="w-6 h-6" />}
+          color="yellow"
+          trend={-daysUntilDeadline}
+        />
+      </div>
+
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Pending Evaluations */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Pending Evaluations */}
           <Card>
             <CardHeader>
               <CardTitle>📋 Pending Evaluations</CardTitle>
               <CardDescription>Complete these evaluations before the deadline</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {pendingCount === 0 ? (
+              {enrolledCount === 0 ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 mx-auto text-yellow-600 mb-4" />
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">No Courses Assigned</p>
+                  <p className="text-gray-600 dark:text-gray-400 mt-2">You don’t have any enrolled courses yet.</p>
+                </div>
+              ) : !evalData?.evaluations?.length ? (
+                <div className="text-center py-12">
+                  <AlertCircle className="w-12 h-12 mx-auto text-blue-600 mb-4" />
+                  <p className="text-lg font-semibold text-gray-900 dark:text-white">No Evaluations Available</p>
+                  <p className="text-gray-600 dark:text-gray-400 mt-2">There are no active evaluations assigned to you at the moment.</p>
+                </div>
+              ) : pendingCount === 0 && closedPendingEvals.length === 0 ? (
                 <div className="text-center py-12">
                   <CheckCircle className="w-12 h-12 mx-auto text-green-600 mb-4" />
                   <p className="text-lg font-semibold text-gray-900 dark:text-white">All Complete! 🎉</p>
                   <p className="text-gray-600 dark:text-gray-400 mt-2">You've completed all evaluations for this period.</p>
                 </div>
               ) : (
-                pendingEvals.map((evaluation:any) => (
-                  <div key={evaluation.id} className="flex items-center justify-between p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-                    <div>
-                      <h4 className="font-semibold text-gray-900 dark:text-white">{evaluation.course_name || evaluation.course?.name}</h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{evaluation.course_code} • {evaluation.evaluatee_name}</p>
+                <>
+                  {pendingEvals.map((evaluation:any) => (
+                    <div
+                      key={evaluation.id}
+                      className="flex items-center justify-between p-4 bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-900/20 dark:to-orange-900/20 rounded-lg border border-red-200 dark:border-red-800"
+                    >
+                      <div>
+                        <h4 className="font-semibold text-gray-900 dark:text-white">
+                          {evaluation.course_name || evaluation.course?.name}
+                        </h4>
+                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                          {evaluation.course_code || evaluation.course?.code} • {evaluation.evaluatee_name || evaluation.evaluatee?.name}
+                        </p>
+                      </div>
+                      <Button variant="primary" size="sm" onClick={() => router.push('/student/evaluations')}>
+                        Evaluate Now
+                      </Button>
                     </div>
-                    <Button variant="primary" size="sm" onClick={() => router.push('/student/evaluations')}>Evaluate Now</Button>
-                  </div>
-                ))
+                  ))}
+                  {closedPendingEvals.length > 0 && (
+                    <div className="pt-2 space-y-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">Closed (not submitted)</p>
+                      {closedPendingEvals.map((evaluation:any) => (
+                        <div
+                          key={evaluation.id}
+                          className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 opacity-60"
+                        >
+                          <div>
+                            <h4 className="font-semibold text-gray-900 dark:text-white">
+                              {evaluation.course_name || evaluation.course?.name}
+                            </h4>
+                            <p className="text-sm text-gray-600 dark:text-gray-400">
+                              {evaluation.course_code || evaluation.course?.code} • {evaluation.evaluatee_name || evaluation.evaluatee?.name}
+                            </p>
+                          </div>
+                          <Badge variant="destructive">Closed</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
 
+          {/* Current Courses */}
           <Card>
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-lg">📚 Enrolled Subjects</CardTitle>
-              <CardDescription>Courses registered for this academic period</CardDescription>
+            <CardHeader>
+              <CardTitle>📚 Your Courses</CardTitle>
+              <CardDescription>All enrolled courses this semester</CardDescription>
             </CardHeader>
-            <CardContent className="pt-4 space-y-3">
-              {enrolledCount === 0 ? (
-                <div className="text-center py-10 bg-gray-50 dark:bg-gray-800/50 rounded-xl border-2 border-dashed border-gray-100 dark:border-gray-800">
-                   <p className="text-sm text-gray-500 italic">No enrolled subjects were found for your profile.</p>
-                </div>
-              ) : (
-                coursesData.courses.map((course: any) => (
-                  <div key={course.id} className="group flex items-center gap-4 p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 hover:border-blue-200 dark:hover:border-blue-900/50 hover:shadow-md transition-all duration-200">
-                    <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                      <BookOpen className="w-6 h-6" />
+            <CardContent className="space-y-2">
+              {(coursesData?.courses || []).map((course:any) => {
+                const evaluation = evaluations.find((e:any)=>e.course_id === course.id);
+                const isCompleted = evaluation?.status === 'submitted' || evaluation?.status === 'locked';
+                const periodStatus = evaluation?.period?.status || evaluation?.period_status;
+                const isClosed = periodStatus === 'closed';
+                return (
+                  <div
+                    key={course.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 dark:text-white">{course.name || course.course_name}</p>
+                      <p className="text-xs text-gray-600 dark:text-gray-400">{course.instructor_name || course.teacher_name}</p>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="outline" className="px-1.5 py-0 text-[10px] uppercase font-bold tracking-tighter bg-gray-50 dark:bg-gray-800">{course.code}</Badge>
-                        <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Subject Code</span>
-                      </div>
-                      <h4 className="font-bold text-gray-900 dark:text-white truncate" title={course.name}>{course.name}</h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1.5">
-                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                         Instructor: <span className="font-semibold text-gray-700 dark:text-gray-300">{course.instructor_name || 'Prof. Pending'}</span>
-                      </p>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="secondary">{course.code || course.course_code}</Badge>
+                      {isCompleted ? (
+                        <Badge variant="success">✓ Done</Badge>
+                      ) : evaluation && isClosed ? (
+                        <Badge variant="destructive">Closed</Badge>
+                      ) : evaluation ? (
+                        <Badge variant="warning">⏳ Pending</Badge>
+                      ) : (
+                         <Badge variant="outline">-</Badge>
+                      )}
                     </div>
                   </div>
-                ))
-              )}
+                );
+              })}
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-4 flex flex-col">
-          <Card className="mb-2">
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-lg">✨ Quick Actions</CardTitle>
+        {/* Sidebar Items */}
+        <div className="space-y-6">
+          {/* Course Status Distribution */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Status Overview</CardTitle>
             </CardHeader>
-            <CardContent className="pt-4 space-y-3">
-              <Button variant="primary" className="w-full gap-2" onClick={() => router.push('/student/evaluations')} disabled={pendingCount === 0}>
-                <Target className="w-4 h-4" /> Start Evaluation
-              </Button>
-              <Button variant="outline" className="w-full gap-2" onClick={() => router.push('/student/history')}>
-                <FileText className="w-4 h-4" /> View History
+            <CardContent className="space-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <div className="flex justify-between">
+                <span>Completed</span>
+                <span className="font-semibold text-green-600">{completedCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Pending</span>
+                <span className="font-semibold text-yellow-600">{pendingCount}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Completion Rate</span>
+                <span className="font-semibold text-blue-600">{completionRate}%</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Actions */}
+          <Card>
+            <CardHeader>
+              <CardTitle>✨ Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {pendingCount > 0 && (
+                <Button 
+                  variant="primary" 
+                  className="w-full gap-2"
+                  onClick={handleStartEvaluation}
+                >
+                  <Target className="w-4 h-4" />
+                  Start Evaluation
+                </Button>
+              )}
+              <Button 
+                variant="outline" 
+                className="w-full gap-2"
+                onClick={handleViewResults}
+              >
+                <FileText className="w-4 h-4" />
+                View History
               </Button>
             </CardContent>
           </Card>
 
-          <DashboardCard
-            title="Pending task"
-            value={<AnimatedCounter endValue={pendingCount} />}
-            footer={`${pendingCount} tasks remaining`}
-            icon={<AlertCircle className="w-6 h-6" />}
-            color="rose"
-          />
-          <DashboardCard
-            title="Completed"
-            value={<AnimatedCounter endValue={completedCount} />}
-            footer={`${completedCount} of ${totalCount} evaluations`}
-            icon={<CheckCircle className="w-6 h-6" />}
-            color="emerald"
-          />
-
-          {activePeriod && (
-            <Card className="relative overflow-hidden border-l-4 border-l-amber-500 shadow-sm">
-              <CardContent className="pt-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">Days Left</p>
-                    <div className="text-4xl font-black text-slate-900 dark:text-white mb-2 leading-none">
-                      {daysUntilDeadline < 1 && daysUntilDeadline > 0 ? "Due Today" : daysUntilDeadline}
-                    </div>
-                    <p className="text-[11px] font-semibold text-gray-400">Deadline: {deadlineStr}</p>
-                  </div>
-                  <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-2xl">
-                    <Clock className="w-6 h-6 text-amber-600" />
-                  </div>
+          {/* Important Dates */}
+          <Card>
+            <CardHeader>
+              <CardTitle>📅 Important Dates</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-3">
+                <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{daysUntilDeadline}</div>
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white">Days remaining</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Until evaluation deadline</p>
                 </div>
-              </CardContent>
-            </Card>
-          )}
-          <DashboardCard
-            title="Enrolled"
-            value={<AnimatedCounter endValue={enrolledCount} />}
-            footer="Current semester"
-            icon={<BookOpen className="w-6 h-6" />}
-            color="indigo"
-          />
+              </div>
+              <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  <strong>Deadline:</strong> {deadline ? deadline.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'No deadline'}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Privacy Notice */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
+                  <CheckCircle className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white text-sm">🔒 Your Privacy</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                    All evaluations are anonymous and confidential
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

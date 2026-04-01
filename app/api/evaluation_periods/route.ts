@@ -13,11 +13,6 @@ function getAuthToken(request: NextRequest): string | null {
 // Remove local verifyToken function as it is now imported
 // async function verifyToken(token: string) { ... }
 
-/**
- * Handles the HTTP GET request securely.
- * Verifies the authorization bearer token natively via abstract logic.
- * Prevents access if user does not match the scoped role mapping.
- */
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -36,7 +31,7 @@ export async function GET(request: NextRequest) {
 
     let queryStr = `SELECT ep.*, ef.type as form_type
      FROM evaluation_periods ep
-     LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
+     LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id`;
     const params: any[] = [];
     const conditions: string[] = [];
 
@@ -66,11 +61,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -78,7 +68,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const body = await request.json();
@@ -91,10 +81,10 @@ export async function POST(request: NextRequest) {
     }
     const result: any = await query(
       `INSERT INTO evaluation_periods (name, start_date, end_date, status, form_id, academic_period_id, academic_year, semester, assignments_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, start_date || '1970-01-01', end_date || '1970-01-01', status || 'upcoming', form_id || null, academic_period_id || null, academic_year || null, semester || null, assignments_json || null]
     );
-    const inserted = await queryOne('SELECT * FROM evaluation_periods WHERE id = ?', [result[0]?.id]);
+    const inserted = await queryOne('SELECT * FROM evaluation_periods WHERE id = ?', [result.insertId]);
     return NextResponse.json({ success: true, period: inserted });
   } catch (error) {
     console.error('Eval periods POST error:', error);
@@ -110,10 +100,6 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   closed: ['active'],
 };
 
-/**
- * Handles the HTTP PATCH request securely.
- * Applies partial structural updates reliably over database.
- */
 export async function PATCH(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -121,7 +107,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const body = await request.json();
@@ -170,16 +156,6 @@ export async function PATCH(request: NextRequest) {
     });
     values.push(id);
     await query(`UPDATE evaluation_periods SET ${sets} WHERE id = ?`, values);
-
-    // Cascading child updates: lock/unlock pending evaluations depending on the parent period's status
-    if (updates.status === 'closed') {
-      // Lock any pending evaluations so targets can no longer access them
-      await query("UPDATE evaluations SET status = 'locked' WHERE period_id = ? AND status = 'pending'", [id]);
-    } else if (updates.status === 'active') {
-      // If reopening, drop untouched locked evaluations back to pending
-      await query("UPDATE evaluations SET status = 'pending' WHERE period_id = ? AND status = 'locked'", [id]);
-    }
-
     const updated = await queryOne('SELECT * FROM evaluation_periods WHERE id = ?', [id]);
     return NextResponse.json({ success: true, period: updated });
   } catch (error) {
@@ -188,10 +164,6 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP DELETE request securely.
- * Ensures isolated teardowns leveraging foreign cascaded keys securely.
- */
 export async function DELETE(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -199,7 +171,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
     const url = new URL(request.url);
@@ -219,13 +191,11 @@ export async function DELETE(request: NextRequest) {
 
     // Cascade-delete: responses → evaluations → period
     await query(
-      `DELETE FROM evaluation_responses er
-       USING evaluations e 
-       WHERE er.evaluation_id = e.id
-         AND e.period_id = ?`,
+      `DELETE er FROM evaluation_responses er
+       JOIN evaluations e ON er.evaluation_id = e.id
+       WHERE e.period_id = ?`,
       [id]
     );
-    await query('DELETE FROM evaluations WHERE period_id = ?', [id]);
     await query('DELETE FROM evaluations WHERE period_id = ?', [id]);
     await query('DELETE FROM evaluation_periods WHERE id = ?', [id]);
 

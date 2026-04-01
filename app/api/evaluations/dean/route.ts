@@ -1,7 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 
-import { verifyToken, getAuthToken } from '@/lib/auth';
+let jwt: any = null;
+
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
+
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    return jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/evaluations/dean
@@ -11,19 +34,14 @@ import { verifyToken, getAuthToken } from '@/lib/auth';
  *
  * Body: { period_id, evaluatee_id, course_id? }
  */
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -64,11 +82,11 @@ export async function POST(request: NextRequest) {
 
     const result: any = await query(
       `INSERT INTO evaluations (course_id, period_id, evaluatee_id, evaluator_id, evaluation_type, status)
-       VALUES (?, ?, ?, ?, ?, 'pending') RETURNING id`,
+       VALUES (?, ?, ?, ?, ?, 'pending')`,
       [course_id || null, period_id, evaluatee_id, deanId, evaluationType]
     );
 
-    return NextResponse.json({ success: true, evaluationId: result[0]?.id });
+    return NextResponse.json({ success: true, evaluationId: result.insertId });
   } catch (error) {
     console.error('Dean evaluation error:', error);
     return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });

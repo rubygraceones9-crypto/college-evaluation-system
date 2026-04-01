@@ -6,7 +6,7 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl' | '6xl' | '7xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
 }
 
@@ -25,19 +25,15 @@ export function Modal({
     md: 'max-w-md',
     lg: 'max-w-lg',
     xl: 'max-w-xl',
-    '2xl': 'max-w-2xl',
-    '3xl': 'max-w-3xl',
-    '4xl': 'max-w-4xl',
-    '5xl': 'max-w-5xl',
-    '6xl': 'max-w-6xl',
-    '7xl': 'max-w-7xl',
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/20 dark:bg-black/40 z-40" onClick={onClose}></div>
-
+      <div
+        className="fixed inset-0 bg-black/50 dark:bg-black/70"
+        onClick={onClose}
+        aria-hidden="true"
+      />
       <div
         className={`relative bg-white dark:bg-gray-800 rounded-xl shadow-lg z-50 w-full mx-4 ${sizeMap[size]} ${className}`}
       >

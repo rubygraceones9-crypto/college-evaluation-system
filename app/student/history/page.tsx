@@ -8,71 +8,64 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { DashboardSkeleton } from '@/components/loading/Skeletons';
 import { formatDate } from '@/utils/helpers';
-import { FileText, Search } from 'lucide-react';
+import { downloadPdf } from '@/utils/helpers';
+import { Download, FileText, Search } from 'lucide-react';
 import { useFetch } from '@/hooks';
 
 export default function StudentHistory() {
-  const { data: historyData, loading: historyLoading } = useFetch<any>('/evaluations?history=true');
+  const { data: historyData, loading: historyLoading } = useFetch<any>('/evaluations');
   const [isLoading, setIsLoading] = useState(historyLoading);
-  const [semester, setSemester] = useState('current');
+  const [semester, setSemester] = useState('all');
   const [selectedEval, setSelectedEval] = useState<string | null>(null);
-  const [selectedForm, setSelectedForm] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     setIsLoading(historyLoading);
   }, [historyLoading]);
 
-  useEffect(() => {
-    if (selectedEval) {
-      const evaluation = historyData?.evaluations?.find((e: any) => e.id === selectedEval);
-      if (evaluation?.period?.form_id) {
-        fetch(`/api/forms?id=${evaluation.period.form_id}`, {
-          headers: { Authorization: `Bearer ${sessionStorage.getItem('auth_token')}` },
-        })
-          .then(res => res.json())
-          .then(data => {
-            if (data.form && data.form.criteria) {
-              const payload = Array.isArray(data.form.criteria) 
-                  ? data.form.criteria 
-                  : typeof data.form.criteria === 'string' ? JSON.parse(data.form.criteria) : [];
-              setSelectedForm({ ...data.form, criteria: payload });
-            }
-          })
-          .catch(err => console.error(err));
+  const downloadEvaluationHistory = () => {
+    try {
+      if (!historyData?.evaluations || historyData.evaluations.length === 0) {
+        alert('No history to download');
+        return;
       }
-    } else {
-      setSelectedForm(null);
+
+      const history = historyData.evaluations.map((r:any) => ({
+        Course: r.course?.name || 'Unknown',
+        'Course Code': r.course?.code || 'N/A',
+        Instructor: r.evaluatee?.name || 'Unknown',
+        'Submitted Date': r.submitted_at ? formatDate(new Date(r.submitted_at)) : 'N/A',
+        Status: r.status === 'locked' ? 'Locked' : 'Submitted',
+        'Response Count': r.responses?.length || 0,
+      }));
+
+      const headers = Object.keys(history[0] || {});
+      const csv = [
+        headers.join(','),
+        ...history.map((h) => headers.map((col) => `"${String((h as any)[col] ?? '')}"`).join(',')),
+      ].join('\n');
+
+      downloadPdf(csv, `evaluation-history-${new Date().toISOString().split('T')[0]}.pdf`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e);
+      alert('Failed to generate history report');
     }
-  }, [selectedEval, historyData]);
+  };
 
   // JSON export removed per requirement - all downloads now PDF only
 
   if (isLoading) return <DashboardSkeleton />;
 
-  const availableSemesters = Array.from(
-    new Set(
-      (historyData?.evaluations || [])
-        .map((e: any) => e.period?.academic_year && e.period?.semester ? `${e.period.academic_year} | ${e.period.semester}` : null)
-        .filter(Boolean)
-    )
-  ) as string[];
-  
   const semesters = [
-    { value: 'current', label: 'Current Semester' },
     { value: 'all', label: 'All Semesters' },
-    ...[...availableSemesters].sort((a: string, b: string) => b.localeCompare(a)).map((s: string) => ({ value: s, label: s })),
+    { value: '2024-1', label: 'Semester 1 2024' },
+    { value: '2024-2', label: 'Semester 2 2024' },
+    { value: '2023-1', label: 'Semester 1 2023' },
   ];
 
   const q = searchTerm.trim().toLowerCase();
   const filteredEvals = (historyData?.evaluations || []).filter((e:any) => {
-    if (semester === 'current') {
-      if (e.is_archived !== 0) return false;
-    } else {
-      const periodLabel = e.period?.academic_year && e.period?.semester ? `${e.period.academic_year} | ${e.period.semester}` : null;
-      if (semester !== 'all' && periodLabel !== semester) return false;
-    }
-
     if (!q) return true;
     return (
       (e.course?.name || '').toLowerCase().includes(q) ||
@@ -87,6 +80,13 @@ export default function StudentHistory() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">📋 Evaluation History</h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">View all your previously submitted evaluations</p>
+        </div>
+
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={downloadEvaluationHistory} className="gap-2" size="sm">
+            <Download className="w-4 h-4" />
+            Download PDF
+          </Button>
         </div>
       </div>
 
@@ -224,35 +224,21 @@ export default function StudentHistory() {
                 </div>
               </div>
 
-              <div className="space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                {responseItem.responses?.map((resp: any, idx: number) => {
-                  let questionText = resp.criteriaName || resp.criteria_id || 'Criterion';
-                  
-                  if (selectedForm?.criteria) {
-                    for (const c of selectedForm.criteria) {
-                      const q: any = (c.questions || []).find((queryQ: any) => String(queryQ.id) === String(resp.criteria_id));
-                      if (q) {
-                        questionText = q.text;
-                        break;
-                      }
-                    }
-                  }
-
-                  return (
-                    <div key={`${responseItem.id}-${resp.criteria_id || resp.criteriaId || idx}`} className="flex justify-between items-start gap-4">
-                      <span className="text-gray-600 dark:text-gray-300 text-sm">
-                        {questionText}
-                      </span>
-                      <span className="font-semibold text-gray-900 dark:text-white whitespace-nowrap">{resp.rating || resp.score}/5</span>
-                    </div>
-                  );
-                })}
+              <div className="space-y-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                {responseItem.responses?.map((resp: any, idx: number) => (
+                  <div key={`${responseItem.id}-${resp.criteriaId}-${idx}`} className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">
+                      {resp.criteriaName || resp.criteria_id || 'Criterion'}
+                    </span>
+                    <span className="font-semibold text-gray-900 dark:text-white">{resp.rating || resp.score}/5</span>
+                  </div>
+                ))}
               </div>
 
-              {(responseItem.comments || responseItem.responses?.find((r: any) => r.comment)?.comment) && (
+              {responseItem.overallComment && (
                 <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Comments:</p>
-                  <p className="text-gray-900 dark:text-white italic">"{responseItem.comments || responseItem.responses?.find((r: any) => r.comment)?.comment}"</p>
+                  <p className="text-gray-900 dark:text-white">{responseItem.overallComment}</p>
                 </div>
               )}
             </CardContent>

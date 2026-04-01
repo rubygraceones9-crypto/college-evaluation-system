@@ -1,7 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 
-import { verifyToken, getAuthToken } from '@/lib/auth';
+let jwt: any = null;
+
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
+
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    return jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+  } catch {
+    return null;
+  }
+}
 
 /**
  * POST /api/evaluations/sync
@@ -10,18 +33,13 @@ import { verifyToken, getAuthToken } from '@/lib/auth';
  * When a student or teacher hits their dashboard, this catches up any missing
  * evaluation assignments from active evaluation periods.
  */
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
@@ -33,29 +51,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, generated: 0 });
     }
 
-    const result = await syncUserEvaluations(userId, role);
-
-    return NextResponse.json({
-      success: true,
-      ...result
-    });
-  } catch (error) {
-    console.error('Evaluations sync error:', error);
-    return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });
-  }
-}
-
-/**
- * Reusable core logic for generating matching evaluations directly over the user.
- * Exposed independently for programmatic execution upon demographic shifts.
- */
-export async function syncUserEvaluations(userId: string, role: string) {
-  let generated = 0;
-  let coursesCreated = 0;
-  let enrollmentsCreated = 0;
-
-  try {
-    const user: any = await queryOne('SELECT * FROM users WHERE id = ? AND is_active = TRUE', [userId]);
+    // Fetch user profile for matching
+    const user: any = await queryOne('SELECT * FROM users WHERE id = ? AND is_active = 1', [userId]);
     if (!user) {
       return NextResponse.json({ error: 'User not found or inactive' }, { status: 404 });
     }
@@ -64,7 +61,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
     const activePeriods: any = await query(
       `SELECT ep.*, ef.type as form_type
        FROM evaluation_periods ep
-       LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)
+       LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id
        WHERE ep.status = 'active'`
     );
 
@@ -76,7 +73,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
       if (role === 'teacher' && period.form_type === 'peer-review') {
         // Peer-review: ensure this teacher has pairwise evaluations with all other active teachers
         const otherTeachers: any = await query(
-          `SELECT id FROM users WHERE role = 'teacher' AND is_active = TRUE AND id != ?`,
+          `SELECT id FROM users WHERE role = 'teacher' AND is_active = 1 AND id != ?`,
           [userId]
         );
 
@@ -128,8 +125,7 @@ export async function syncUserEvaluations(userId: string, role: string) {
           : period.semester === 'Summer' ? 3
           : Number.parseInt(period.semester) || null;
 
-        const { buildCurriculum } = await import('@/app/api/curriculum/route');
-        const curriculum = await buildCurriculum();
+        const { curriculum } = await import('@/data/curriculum');
 
         for (const group of groups) {
           const program = group.program;
@@ -150,13 +146,9 @@ export async function syncUserEvaluations(userId: string, role: string) {
             !selectedCodes.length
           ) continue;
 
-          const semesterStr = period.semester === 1 ? '1st Semester' 
-            : period.semester === 2 ? '2nd Semester' 
-            : period.semester === 3 ? 'Summer' : period.semester;
-
           const programData = (curriculum as any)[program];
           const yearData = programData?.[yearLevel];
-          const semSubjects: Array<{ code: string; name: string }> = yearData?.[semesterStr] || [];
+          const semSubjects: Array<{ code: string; name: string }> = yearData?.[period.semester] || [];
           const subjectNameMap: Record<string, string> = {};
           for (const s of semSubjects) {
             subjectNameMap[s.code] = s.name;
@@ -185,10 +177,10 @@ export async function syncUserEvaluations(userId: string, role: string) {
             if (!course) {
               const insertResult: any = await query(
                 `INSERT INTO courses (code, name, teacher_id, section, course_program, year_level, academic_year, semester)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [code, subjectName, instructorId, section, program, yearNum, period.academic_year, semesterNum]
               );
-              course = { id: insertResult[0]?.id };
+              course = { id: insertResult.insertId };
               coursesCreated++;
             }
 
@@ -196,9 +188,9 @@ export async function syncUserEvaluations(userId: string, role: string) {
 
             // Create enrollment if needed
             await query(
-              `INSERT INTO course_enrollments (course_id, student_id) VALUES (?, ?) ON CONFLICT DO NOTHING`,
+              `INSERT IGNORE INTO course_enrollments (course_id, student_id) VALUES (?, ?)`,
               [courseId, userId]
-            ).then((r: any) => { enrollmentsCreated += Number(r?.rowCount) || 0; });
+            ).then((r: any) => { enrollmentsCreated += r?.affectedRows || 0; });
 
             // Create evaluation if it doesn't exist
             const exists: any = await queryOne(
@@ -220,13 +212,14 @@ export async function syncUserEvaluations(userId: string, role: string) {
       }
     }
 
-    return {
+    return NextResponse.json({
+      success: true,
       generated,
       coursesCreated,
       enrollmentsCreated,
-    };
+    });
   } catch (error) {
-    console.error('Core sync error:', error);
-    return { generated, coursesCreated, enrollmentsCreated };
+    console.error('Evaluations sync error:', error);
+    return NextResponse.json({ error: 'Internal server error', details: String(error) }, { status: 500 });
   }
 }

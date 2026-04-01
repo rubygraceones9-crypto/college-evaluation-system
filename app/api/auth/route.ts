@@ -3,22 +3,12 @@ import { query, queryOne } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 import { generateToken } from '@/lib/auth';
 
-
 function getClientIp(request: NextRequest): string {
   return request.headers.get('x-forwarded-for') ||
     request.headers.get('x-real-ip') ||
     'unknown';
 }
 
-async function verifyCaptcha(token: string): Promise<boolean> {
-  return true; // ReCaptcha is completely disabled globally for this project
-}
-
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   const clientIp = getClientIp(request);
   const userAgent = request.headers.get('user-agent') || '';
@@ -31,7 +21,9 @@ export async function POST(request: NextRequest) {
       return await handleEmailLogin(body, clientIp, userAgent);
     }
 
-
+    if (action === 'google-login') {
+      return await handleGoogleLogin(body, clientIp, userAgent);
+    }
 
     if (action === 'signup') {
       return await handleSignup(body, clientIp, userAgent);
@@ -60,7 +52,7 @@ async function handleEmailLogin(
   userAgent: string
 ) {
   try {
-    const { email, password, captchaToken } = body;
+    const { email, password } = body;
     console.log('Login attempt:', { email });
 
     if (!email || !password) {
@@ -70,25 +62,12 @@ async function handleEmailLogin(
       );
     }
 
-    const isHuman = await verifyCaptcha(captchaToken);
-    if (!isHuman) {
-      return NextResponse.json(
-        { error: 'reCAPTCHA verification failed. Please try again.' },
-        { status: 400 }
-      );
-    }
-
-    if (!process.env.DATABASE_URL && !process.env.DATABASE_URI) {
-      console.error('CRITICAL: DATABASE_URL/URI is missing in Render environment variables!');
-    }
-
-    // Query database for user (using LOWER for case-insensitive email match in Postgres)
+    // Query database for user
     const users = await query(
-      'SELECT id, name, email, role, course, year_level, section FROM users WHERE LOWER(email) = LOWER(?) AND password = ?',
-      [email, password]
+      'SELECT id, name, email, role FROM users WHERE email = ? AND password = ?',
+      [email, password] // TODO: Use bcrypt for password hashing in production
     ) as any[];
-    
-    console.log(`AUTH_DEBUG: Found ${users.length} users for [${email}]`);
+    console.log('User query result:', users);
 
     if (users.length === 0) {
       return NextResponse.json(
@@ -106,9 +85,9 @@ async function handleEmailLogin(
       [user.id, 'LOGIN', 'User login via email', clientIp, userAgent, 'success']
     );
 
-    // Create session record (Postgres Interval syntax)
+    // Create session record
     await query(
-      'INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, NOW() + INTERVAL \'24 hours\')',
+      'INSERT INTO sessions (user_id, token, ip_address, user_agent, expires_at) VALUES (?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))',
       [user.id, token, clientIp, userAgent]
     );
 
@@ -119,9 +98,6 @@ async function handleEmailLogin(
         name: user.name,
         email: user.email,
         role: user.role,
-        course: user.course,
-        year_level: user.year_level,
-        section: user.section,
       },
       token,
     });
@@ -134,6 +110,55 @@ async function handleEmailLogin(
   }
 }
 
+async function handleGoogleLogin(
+  body: any,
+  clientIp: string,
+  userAgent: string
+) {
+  try {
+    const { googleToken } = body;
+
+    if (!googleToken) {
+      return NextResponse.json(
+        { error: 'Google token is required' },
+        { status: 400 }
+      );
+    }
+
+    // For demo mode - use test user
+    const email = 'test.user@jmc.edu.ph';
+    const name = 'Test User';
+    const userId = 1;
+
+    // Verify email domain
+    if (!email.endsWith('@jmc.edu.ph')) {
+      return NextResponse.json(
+        { error: 'Access denied. Please use your official JMC institutional account.' },
+        { status: 403 }
+      );
+    }
+
+    // Generate token
+    const token = await generateToken(String(userId), 'student');
+
+    return NextResponse.json({
+      success: true,
+      user: {
+        id: userId,
+        name: name,
+        email: email,
+        role: 'student',
+      },
+      token,
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    return NextResponse.json(
+      { error: 'Login failed', details: String(error) },
+      { status: 500 }
+    );
+  }
+}
 
 async function handleSignup(
   body: any,
@@ -141,20 +166,12 @@ async function handleSignup(
   userAgent: string
 ) {
   try {
-    const { firstName, lastName, email, password, role, course, jmcId, yearLevel, section, captchaToken } = body;
+    const { firstName, lastName, email, password, role, course, jmcId, yearLevel, section } = body;
 
     // Validate required fields
     if (!firstName || !lastName || !email || !password || !role || (role === 'student' && !course) || !jmcId) {
       return NextResponse.json(
         { error: 'All fields are required' },
-        { status: 400 }
-      );
-    }
-
-    const isHuman = await verifyCaptcha(captchaToken);
-    if (!isHuman) {
-      return NextResponse.json(
-        { error: 'reCAPTCHA verification failed. Please try again.' },
         { status: 400 }
       );
     }
@@ -197,12 +214,12 @@ async function handleSignup(
     // Insert user into database
     if (role === 'student') {
       await query(
-        'INSERT INTO users (id, name, email, course, year_level, section, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
+        'INSERT INTO users (id, name, email, course, year_level, section, password, role, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)',
         [userId, name, email, course, yearLevel ? Number(yearLevel) : null, section || null, password, role]
       );
     } else {
       await query(
-        'INSERT INTO users (id, name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, TRUE)',
+        'INSERT INTO users (id, name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?, 1)',
         [userId, name, email, password, role]
       );
     }

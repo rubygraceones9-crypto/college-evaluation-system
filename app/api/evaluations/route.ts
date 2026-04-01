@@ -1,7 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
-import { verifyToken, getAuthToken } from '@/lib/auth';
+let jwt: any = null;
 
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
+
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return null;
+  }
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    const decoded = jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+    return decoded;
+  } catch (error) {
+    return null;
+  }
+}
 
 // request payload used by students/teachers when submitting responses
 // we also support optional parameters when creating new evaluation
@@ -21,11 +46,6 @@ type EvalRequest = {
 
 // GET evaluations for the logged-in user
 // support optional query parameters ?type=peer|teacher&status=locked|submitted
-/**
- * Handles the HTTP GET request securely.
- * Verifies the authorization bearer token natively via abstract logic.
- * Prevents access if user does not match the scoped role mapping.
- */
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -33,7 +53,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
@@ -44,20 +64,6 @@ export async function GET(request: NextRequest) {
     const filterPeriodId = url.searchParams.get('period_id');
     const filterId = url.searchParams.get('id');
 
-    const deduplicate = (evals: any[]) => {
-      const map = new Map();
-      (evals || []).forEach(e => {
-        const key = `${e.period_id}-${e.evaluator_id}-${e.evaluatee_id}-${e.course_code}-${e.evaluation_type}`;
-        const existing = map.get(key);
-        if (!existing) {
-          map.set(key, e);
-        } else if (e.status === 'submitted' || e.status === 'locked') {
-          map.set(key, e);
-        }
-      });
-      return Array.from(map.values()).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    };
-
     let evaluations: any;
     if (decoded.role === 'dean') {
       // dean sees all evaluations (completed or not) with full response details
@@ -65,16 +71,11 @@ export async function GET(request: NextRequest) {
         `SELECT e.id, e.course_id, e.period_id, e.evaluatee_id, e.evaluator_id, e.evaluation_type, e.status, e.comments,
                 c.name as course_name, c.code as course_code,
                 u.name as evaluatee_name,
-                ev.name as evaluator_name,
-                ev.course as evaluator_program,
-                ev.year_level as evaluator_year,
-                ep.academic_year, ep.semester, ep.academic_period_id
+                ev.name as evaluator_name
          FROM evaluations e
          LEFT JOIN courses c ON e.course_id = c.id
          LEFT JOIN users u ON e.evaluatee_id = u.id
-         LEFT JOIN users ev ON e.evaluator_id = ev.id
-         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
-         LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
+         LEFT JOIN users ev ON e.evaluator_id = ev.id`;
       const conditions: string[] = [];
       const params: any[] = [];
       if (filterId) {
@@ -98,12 +99,11 @@ export async function GET(request: NextRequest) {
       }
       base += ' ORDER BY e.created_at DESC';
       evaluations = await query(base, params);
-      evaluations = deduplicate(evaluations);
       // attach responses for each
       const withResp = await Promise.all(
         (evaluations || []).map(async (evaluation: any) => {
           // Join responses with questions to get the question text
-           const responses: any = await query(
+          const responses: any = await query(
             `SELECT er.id, er.criteria_id, er.rating, er.comment,
                     eq.text as question_text, ec.name as criteria_name
              FROM evaluation_responses er
@@ -117,11 +117,7 @@ export async function GET(request: NextRequest) {
           return {
             ...evaluation,
             responses: responses || [],
-            evaluator: { 
-              name: evaluation.evaluator_name, 
-              program: evaluation.evaluator_program,
-              year: evaluation.evaluator_year 
-            },
+            evaluator: { name: evaluation.evaluator_name },
             evaluatee: { name: evaluation.evaluatee_name },
             form: { type: evaluation.evaluation_type },
             course: { name: evaluation.course_name, code: evaluation.course_code },
@@ -137,9 +133,8 @@ export async function GET(request: NextRequest) {
     } else {
       // role=evaluatee returns evaluations where this user is being evaluated
       const role = url.searchParams.get('role');
-      const isHistory = url.searchParams.get('history') === 'true';
       let base =
-        `SELECT e.id, e.course_id, e.period_id, e.evaluatee_id, e.evaluator_id, e.evaluation_type, e.status, e.comments, e.submitted_at, e.created_at, e.is_archived,
+        `SELECT e.id, e.course_id, e.period_id, e.evaluatee_id, e.evaluator_id, e.evaluation_type, e.status, e.comments, e.submitted_at, e.created_at,
                 c.name as course_name, c.code as course_code,
                 u.name as evaluatee_name,
                 ep.name as period_name, ep.academic_year, ep.semester, ep.form_id,
@@ -147,17 +142,12 @@ export async function GET(request: NextRequest) {
          FROM evaluations e
          LEFT JOIN courses c ON e.course_id = c.id
          LEFT JOIN users u ON e.evaluatee_id = u.id
-         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id
-         LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)`;
+         LEFT JOIN evaluation_periods ep ON e.period_id = ep.id`;
       const params: any[] = [decoded.userId];
       if (role === 'evaluatee') {
         base += ' WHERE e.evaluatee_id = ?';
-        if (!isHistory) base += ' AND e.is_archived = 0';
       } else {
-        base += ' WHERE e.evaluator_id = ?';
-        if (!isHistory) {
-          base += ` AND e.status != 'locked' AND e.is_archived = 0`;
-        }
+        base += ` WHERE e.evaluator_id = ? AND e.status != 'locked'`;
       }
       if (filterType) {
         base += ' AND e.evaluation_type = ?';
@@ -169,20 +159,13 @@ export async function GET(request: NextRequest) {
       }
       base += ' ORDER BY e.created_at DESC';
       evaluations = await query(base, params);
-      evaluations = deduplicate(evaluations);
     }
 
     // Get responses for each evaluation
     const evaluationsWithResponses = await Promise.all(
       (evaluations || []).map(async (evaluation: any) => {
         const responses: any = await query(
-          `SELECT er.id, er.criteria_id, er.rating, er.comment,
-                  ec.name as criteria_name
-           FROM evaluation_responses er
-           LEFT JOIN evaluation_questions eq ON er.criteria_id = eq.id
-           LEFT JOIN evaluation_criteria ec ON eq.criteria_id = ec.id
-           WHERE er.evaluation_id = ? 
-           ORDER BY er.id`,
+          'SELECT id, criteria_id, rating, comment FROM evaluation_responses WHERE evaluation_id = ? ORDER BY id',
           [evaluation.id]
         );
         return {
@@ -210,17 +193,13 @@ export async function GET(request: NextRequest) {
 
 // PATCH evaluation attributes or lock/unlock. Dean may update any evaluation; evaluators
 // may only modify their own draft evaluations (e.g. change status back to draft).
-/**
- * Handles the HTTP PATCH request securely.
- * Applies partial structural updates reliably over database.
- */
 export async function PATCH(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
@@ -279,11 +258,6 @@ export async function PATCH(request: NextRequest) {
 }
 
 // POST evaluation responses
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
@@ -291,7 +265,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
@@ -313,7 +287,7 @@ export async function POST(request: NextRequest) {
         const period: any = await queryOne(
           `SELECT ep.assignments_json, ep.academic_year, ep.semester, ep.form_id, ef.type as form_type
            FROM evaluation_periods ep
-           LEFT JOIN evaluation_forms ef ON ep.form_id = CAST(ef.id AS VARCHAR)
+           LEFT JOIN evaluation_forms ef ON ep.form_id = ef.id
            WHERE ep.id = ?`,
           [periodId]
         );
@@ -321,7 +295,7 @@ export async function POST(request: NextRequest) {
         // Peer-review form: generate pairwise evaluations among all active teachers
         if (period?.form_type === 'peer-review') {
           const teachers: any = await query(
-            `SELECT id FROM users WHERE role = 'teacher' AND is_active = TRUE`
+            `SELECT id FROM users WHERE role = 'teacher' AND is_active = 1`
           );
           for (const evaluator of (teachers || [])) {
             for (const evaluatee of (teachers || [])) {
@@ -360,8 +334,7 @@ export async function POST(request: NextRequest) {
             : Number.parseInt(period.semester) || null;
 
           // Load curriculum once for all groups
-          const { buildCurriculum } = await import('@/app/api/curriculum/route');
-          const curriculum = await buildCurriculum();
+          const { curriculum } = await import('@/data/curriculum');
 
           for (const group of groups) {
             const program = group.program;       // e.g. 'BSIT'
@@ -403,10 +376,10 @@ export async function POST(request: NextRequest) {
               if (!course) {
                 const insertResult: any = await query(
                   `INSERT INTO courses (code, name, teacher_id, section, course_program, year_level, academic_year, semester)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                   [code, subjectName, instructorId, section, program, yearNum, period.academic_year, semesterNum]
                 );
-                course = { id: insertResult[0]?.id };
+                course = { id: insertResult.insertId };
                 coursesCreated++;
               }
 
@@ -422,9 +395,9 @@ export async function POST(request: NextRequest) {
               for (const student of (students || [])) {
                 // Create enrollment if it doesn't exist
                 await query(
-                  `INSERT INTO course_enrollments (course_id, student_id) VALUES (?, ?) ON CONFLICT (student_id, course_id) DO NOTHING`,
+                  `INSERT IGNORE INTO course_enrollments (course_id, student_id) VALUES (?, ?)`,
                   [courseId, student.id]
-                ).then((r: any) => { enrollmentsCreated += Number(r?.rowCount) || 0; });
+                ).then((r: any) => { enrollmentsCreated += r?.affectedRows || 0; });
 
                 // 3. Create evaluation: student (evaluator) evaluates teacher (evaluatee)
                 const exists: any = await queryOne(
@@ -471,10 +444,10 @@ export async function POST(request: NextRequest) {
       }
       const insertResult: any = await query(
         `INSERT INTO evaluations (course_id, period_id, evaluatee_id, evaluator_id, evaluation_type, status)
-         VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+         VALUES (?, ?, ?, ?, ?, ?)`,
         [body.courseId || null, body.periodId || null, evaluatee, decoded.userId, body.evaluationType || 'teacher', 'draft']
       );
-      evaluationId = insertResult[0]?.id;
+      evaluationId = insertResult.insertId;
     }
 
     if (!body.responses || !Array.isArray(body.responses)) {
@@ -570,18 +543,14 @@ export async function POST(request: NextRequest) {
  *
  * Query param: ?id=<evaluation_id>
  */
-/**
- * Handles the HTTP DELETE request securely.
- * Ensures isolated teardowns leveraging foreign cascaded keys securely.
- */
 export async function DELETE(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') {
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
@@ -601,14 +570,6 @@ export async function DELETE(request: NextRequest) {
 
     // Always clear responses first
     await query('DELETE FROM evaluation_responses WHERE evaluation_id = ?', [id]);
-
-    // Clean up duplicate anonymous dashboard comment if it exists
-    if (evaluation.comments) {
-      await query(
-        `DELETE FROM comments WHERE entity_type = 'evaluation' AND entity_id = ? AND author_id = ? AND content = ?`,
-        [evaluation.evaluatee_id, evaluation.evaluator_id, evaluation.comments]
-      );
-    }
 
     if (isGhost) {
       // Ghost eval: delete entirely

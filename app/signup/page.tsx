@@ -9,8 +9,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert } from '@/components/ui/Alert';
 import { Checkbox } from '@/components/ui/Checkbox';
 import { ArrowLeft, Mail, User, Lock, Eye, EyeOff } from 'lucide-react';
-import ReCAPTCHA from 'react-google-recaptcha';
-import { getRoleDashboardPath } from '@/utils/helpers';
 
 function SignUpContent() {
   const router = useRouter();
@@ -41,9 +39,6 @@ function SignUpContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
-  // Captcha State
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -52,7 +47,7 @@ function SignUpContent() {
     if (!formData.firstName.trim()) return 'First name is required';
     if (!formData.lastName.trim()) return 'Last name is required';
     if (!formData.email.trim()) return 'Email is required';
-
+    
     if (!formData.email.endsWith('@jmc.edu.ph')) {
       return 'Please use your official JMC institutional email (@jmc.edu.ph)';
     }
@@ -156,7 +151,6 @@ function SignUpContent() {
     }
   };
 
-
   if (!mounted) return null;
 
   return (
@@ -191,7 +185,7 @@ function SignUpContent() {
         </div>
 
         {/* Sign-up Card */}
-        <div className="w-full max-w-2xl animate-slideUp">
+        <div className="w-full max-w-md animate-slideUp">
           <Card className="shadow-2xl border-0">
             <CardHeader className="text-center border-b border-gray-200 pb-6">
               <CardTitle className="text-2xl font-bold text-gray-900 leading-tight">
@@ -225,7 +219,7 @@ function SignUpContent() {
                 </Alert>
               )}
 
-              <form onSubmit={handleSignUp} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <form onSubmit={handleSignUp} className="space-y-4">
                 {/* First Name */}
                 <div>
                   <label htmlFor="firstName" className="text-sm font-semibold text-gray-700 dark:text-gray-300 block mb-2">
@@ -238,6 +232,7 @@ function SignUpContent() {
                       type="text"
                       value={formData.firstName}
                       onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      placeholder="John"
                       className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all"
                       disabled={isLoading}
                     />
@@ -256,6 +251,7 @@ function SignUpContent() {
                       type="text"
                       value={formData.lastName}
                       onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      placeholder="Doe"
                       className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all"
                       disabled={isLoading}
                     />
@@ -274,7 +270,7 @@ function SignUpContent() {
                       type="email"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      placeholder="youremail@jmc.edu.ph"
+                      placeholder="yourname@jmc.edu.ph"
                       className="w-full pl-10 pr-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all"
                       disabled={isLoading}
                     />
@@ -345,23 +341,21 @@ function SignUpContent() {
 
                 {/* Section (only for students) */}
                 {role === 'student' && (
-                  <div className="md:col-span-2">
+                  <div>
                     <label htmlFor="section" className="text-sm font-semibold text-gray-700 dark:text-gray-300 block mb-2">
                       Section
                     </label>
-                    <select
+                    <input
                       id="section"
+                      type="text"
                       value={formData.section}
-                      onChange={(e) => setFormData({ ...formData, section: e.target.value })}
-                      className="w-full px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-purple-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all"
+                      onChange={(e) => setFormData({ ...formData, section: e.target.value.toUpperCase() })}
+                      placeholder="A"
+                      maxLength={10}
+                      className="w-full px-4 py-2.5 border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 dark:focus:ring-purple-900/50 transition-all"
                       disabled={isLoading}
-                    >
-                      <option value="">Select section</option>
-                      <option value="A">A</option>
-                      <option value="B">B</option>
-                      <option value="C">C</option>
-                      <option value="D">D</option>
-                    </select>
+                    />
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">e.g. A, B, C</p>
                   </div>
                 )}
 
@@ -427,7 +421,7 @@ function SignUpContent() {
                 </div>
 
                 {/* Terms and Conditions */}
-                <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg md:col-span-2 mt-2">
+                <div className="flex items-start gap-3 p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
                   <input
                     id="agree-terms"
                     type="checkbox"
@@ -441,13 +435,11 @@ function SignUpContent() {
                   </label>
                 </div>
 
-                {/* Google reCAPTCHA disabled */}
-
                 {/* Sign Up Button */}
                 <button
                   type="submit"
                   disabled={isLoading}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed md:col-span-2 mt-2 text-lg"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isLoading ? (
                     <div className="flex items-center justify-center gap-2">
@@ -460,9 +452,8 @@ function SignUpContent() {
                 </button>
               </form>
 
-
               {/* Login Link */}
-              <div className="text-center text-sm mt-6">
+              <div className="text-center text-sm">
                 <span className="text-gray-600 dark:text-gray-400">Already have an account? </span>
                 <button
                   onClick={() => router.push('/login')}

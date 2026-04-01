@@ -15,15 +15,14 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Badge } from '@/components/ui/Badge';
 import { DashboardSkeleton } from '@/components/loading/Skeletons';
-import { ConfirmPasswordModal } from '@/components/ui/ConfirmPasswordModal';
 import { useFetch } from '@/hooks';
+import { curriculum } from '@/data/curriculum';
 import {
   Save,
   Play,
   Trash2,
   FileText,
   RefreshCw,
-  ArrowLeft,
   Eye,
   Plus,
   ChevronDown,
@@ -48,7 +47,7 @@ type AssignmentGroup = {
   collapsed: boolean;
 };
 
-const createGroupId = () => Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
+const createGroupId = () => Math.random().toString(36).slice(2, 9);
 
 const createEmptyGroup = (): AssignmentGroup => ({
   id: createGroupId(),
@@ -88,10 +87,10 @@ const formTypeLabel: Record<string, string> = {
   'peer-review': 'Peer Review',
 };
 
-type CurriculumProgram = 'BSIT' | 'BSEMC';
+type CurriculumProgram = keyof typeof curriculum;
 
-function getSubjectsForGroup(curriculum: any, program: string, yearLevel: string, semester: string) {
-  if (!program || !yearLevel || !semester || !curriculum) return [];
+function getSubjectsForGroup(program: string, yearLevel: string, semester: string) {
+  if (!program || !yearLevel || !semester) return [];
   const programData = (curriculum as any)[program];
   if (!programData) return [];
   const yearData = programData[yearLevel];
@@ -142,21 +141,6 @@ export default function EvaluationSetupPage() {
     }
   };
 
-  const [isConfirmPasswordOpen, setIsConfirmPasswordOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<() => void>(() => () => {});
-  const [confirmModalConfig, setConfirmModalConfig] = useState({ 
-    title: 'Confirm Action', 
-    message: 'Please enter your administrator password to proceed.', 
-    variant: 'primary' as 'primary' | 'danger',
-    confirmText: 'Confirm'
-  });
-
-  const confirmAction = (action: () => void, config: typeof confirmModalConfig) => {
-    setPendingAction(() => action);
-    setConfirmModalConfig(config);
-    setIsConfirmPasswordOpen(true);
-  };
-
   const clearFeedback = (section: string) => {
     setSectionFeedback(prev => ({ ...prev, [section]: null }));
   };
@@ -170,8 +154,6 @@ export default function EvaluationSetupPage() {
   const { data: usersData } = useFetch<any>('/users');
   const { data: formsData } = useFetch<any>('/forms');
   const { data: academicPeriodsData } = useFetch<any>('/academic_periods');
-  const { data: curriculumDataRes, loading: currLoading } = useFetch<any>('/curriculum');
-  const curriculum = curriculumDataRes?.curriculum || {};
 
   // Fetch drafts
   useEffect(() => {
@@ -182,20 +164,18 @@ export default function EvaluationSetupPage() {
     })
       .then(r => r.json())
       .then(data => { if (data.success) setDrafts(data.periods || []); })
-      .catch((err) => { console.error('Error:', err); })
+      .catch(() => {})
       .finally(() => setDraftsLoading(false));
   }, []);
 
   // Academic period options
   const academicPeriodOptions = useMemo(() => {
     if (!academicPeriodsData?.periods) return [];
-    return academicPeriodsData.periods
-      .filter((p: any) => !p.is_archived || String(p.id) === selectedAcademicPeriodId)
-      .map((p: any) => ({
-        value: String(p.id),
-        label: `${p.name} (${p.academic_year} — Sem ${p.semester})${p.is_archived ? ' [Locked]' : ''}`,
-      }));
-  }, [academicPeriodsData, selectedAcademicPeriodId]);
+    return academicPeriodsData.periods.map((p: any) => ({
+      value: String(p.id),
+      label: `${p.name} (${p.academic_year} — Sem ${p.semester})`,
+    }));
+  }, [academicPeriodsData]);
 
   // Auto-select the active academic period
   useEffect(() => {
@@ -259,11 +239,11 @@ export default function EvaluationSetupPage() {
 
   // ── Year levels for a given program ──
   const getYearLevels = useCallback((program: string) => {
-    if (!program || !curriculum) return [];
+    if (!program) return [];
     const programData = (curriculum as any)[program];
     if (!programData) return [];
     return Object.keys(programData).map(y => ({ value: y, label: y }));
-  }, [curriculum]);
+  }, []);
 
   // Auto-generated evaluation name
   const generatedName = useMemo(() => {
@@ -343,7 +323,7 @@ export default function EvaluationSetupPage() {
     const rows: { code: string; name: string; section: string; teacherName: string; program: string; yearLevel: string }[] = [];
     for (const group of groups) {
       if (!group.program || !group.yearLevel) continue;
-      const subjects = getSubjectsForGroup(curriculum, group.program, group.yearLevel, semester);
+      const subjects = getSubjectsForGroup(group.program, group.yearLevel, semester);
       const subjectMap: Record<string, string> = {};
       for (const s of subjects) subjectMap[s.code] = s.name;
 
@@ -435,7 +415,6 @@ export default function EvaluationSetupPage() {
         setSavedPeriodId(periodData.period.id);
       }
       showFeedback('section3', { type: 'success', message: savedPeriodId ? 'Setup updated!' : 'Setup saved as draft!' });
-      setTimeout(() => router.push('/dean/evaluations'), 1000);
     } catch (err) {
       showFeedback('section3', { type: 'error', message: `Failed to save: ${err instanceof Error ? err.message : 'Unknown error'}` });
     } finally {
@@ -489,7 +468,7 @@ export default function EvaluationSetupPage() {
             collapsed: false,
           }]);
         }
-      } catch (err) { console.error('Error:', err); }
+      } catch {}
     }
     setNamePrefix(restoredPrefix);
 
@@ -516,30 +495,53 @@ export default function EvaluationSetupPage() {
           if (period) loadPeriodData(period);
         }
       })
-      .catch((err) => { console.error('Error:', err); })
+      .catch(() => {})
       .finally(() => setEditLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editPeriodId]);
 
   // Delete a draft
-  const deleteDraft = (id: number) => {
-    confirmAction(async () => {
-      try {
-        await fetchApi(`/evaluation_periods?id=${id}`, { method: 'DELETE' });
-        setDrafts(drafts.filter(d => d.id !== id));
-      } catch (err) {
-        showFeedback('section1', { type: 'error', message: `Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}` });
-      }
-    }, {
-      title: 'Delete Draft',
-      message: 'Are you sure you want to permanently delete this setup draft?',
-      variant: 'danger',
-      confirmText: 'Delete Draft'
-    });
+  const deleteDraft = async (id: number) => {
+    if (!confirm('Delete this draft?')) return;
+    try {
+      await fetchApi(`/evaluation_periods?id=${id}`, { method: 'DELETE' });
+      setDrafts(drafts.filter(d => d.id !== id));
+    } catch (err) {
+      alert(`Failed to delete: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   // ── Start Evaluation ──
-  const executeStart = async () => {
+  const startEvaluation = async () => {
+    if (!evalStartDate || !evalEndDate) {
+      showFeedback('section1', { type: 'error', message: 'Set evaluation dates before starting.' });
+      return;
+    }
+    if (dateWarning) {
+      showFeedback('section1', { type: 'error', message: 'Fix date issues before starting.' });
+      return;
+    }
+    if (!selectedFormId) {
+      showFeedback('section1', { type: 'error', message: 'Select an evaluation form before starting.' });
+      return;
+    }
+    if (showInstructorAssignment) {
+      for (const group of groups) {
+        if (!group.program || !group.yearLevel) continue;
+        const missing = group.selectedCodes.filter(code => !group.assignments[code]);
+        if (missing.length > 0) {
+          showFeedback('section2', { type: 'error', message: `Assign instructors to all selected subjects in ${group.program} ${group.yearLevel}. Missing: ${missing.join(', ')}` });
+          return;
+        }
+      }
+    }
+
+    // If status is draft, just save as draft instead of activating
+    if (status === 'draft') {
+      await saveSetup();
+      return;
+    }
+
     setStarting(true);
     clearFeedback('section3');
     try {
@@ -595,7 +597,6 @@ export default function EvaluationSetupPage() {
       }
 
       showFeedback('section3', { type: 'success', message: status === 'active' ? 'Evaluation started! Assignments have been generated.' : `Evaluation status set to ${status}.` });
-      setTimeout(() => router.push('/dean/evaluations'), 1000);
     } catch (err) {
       showFeedback('section3', { type: 'error', message: `Failed to start: ${err instanceof Error ? err.message : 'Unknown error'}` });
     } finally {
@@ -603,61 +604,13 @@ export default function EvaluationSetupPage() {
     }
   };
 
-  const startEvaluation = async () => {
-    if (!evalStartDate || !evalEndDate) {
-      showFeedback('section1', { type: 'error', message: 'Set evaluation dates before starting.' });
-      return;
-    }
-    if (dateWarning) {
-      showFeedback('section1', { type: 'error', message: 'Fix date issues before starting.' });
-      return;
-    }
-    if (!selectedFormId) {
-      showFeedback('section1', { type: 'error', message: 'Select an evaluation form before starting.' });
-      return;
-    }
-    if (showInstructorAssignment) {
-      for (const group of groups) {
-        if (!group.program || !group.yearLevel) continue;
-        const missing = group.selectedCodes.filter(code => !group.assignments[code]);
-        if (missing.length > 0) {
-          showFeedback('section2', { type: 'error', message: `Assign instructors to all selected subjects in ${group.program} ${group.yearLevel}. Missing: ${missing.join(', ')}` });
-          return;
-        }
-      }
-    }
-
-    // If status is draft, just save as draft instead of activating
-    if (status === 'draft') {
-      await saveSetup();
-      return;
-    }
-
-    confirmAction(executeStart, {
-      title: 'Start Evaluation',
-      message: 'You are about to launch this evaluation period. This will generate assignments for all students. Enter password to confirm.',
-      variant: 'primary',
-      confirmText: 'Launch Evaluation'
-    });
-  };
-
   const isEditMode = !!editPeriodId;
 
   if (editLoading) return <DashboardSkeleton />;
 
   return (
-    <div className="space-y-8">
-      <div className="relative text-center">
-        {isEditMode && (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="absolute left-0 top-1/2 -translate-y-1/2 flex items-center gap-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
-            onClick={() => router.push('/dean/evaluations')}
-          >
-            <ArrowLeft className="w-4 h-4" /> Back
-          </Button>
-        )}
+    <div className="space-y-8 max-w-5xl mx-auto p-4">
+      <div className="text-center">
         <h1 className="text-4xl font-bold text-gray-900 dark:text-white">
           {isEditMode ? 'Edit Evaluation' : 'Evaluation Setup'}
         </h1>
@@ -729,109 +682,91 @@ export default function EvaluationSetupPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex flex-col gap-6">
-            
-            {/* Top row: Read-only period + Form Select */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 bg-gray-50/50 dark:bg-gray-800/30 p-5 border border-gray-100 dark:border-gray-700/50 rounded-xl rounded-tr-xl">
-              <div className="space-y-4">
-                <div>
-                  <div className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Connected Academic Period</div>
-                  {selectedAcademicPeriod ? (
-                    <div className="px-4 py-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-800 dark:text-gray-200 text-sm flex items-center justify-between shadow-sm">
-                      <span className="font-medium">{selectedAcademicPeriod.name}</span>
-                      <Badge variant="success">Active</Badge>
-                    </div>
-                  ) : (
-                    <div className="px-4 py-2.5 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg text-yellow-800 dark:text-yellow-300 text-sm shadow-sm">
-                      No active academic period.{' '}
-                      <Link href="/dean/academic" className="text-blue-600 font-semibold hover:underline">Set one up</Link>.
-                    </div>
-                  )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Academic Period (read-only, from active period) */}
+            <div>
+              <div className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Academic Period</div>
+              {selectedAcademicPeriod ? (
+                <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 text-sm flex items-center gap-2">
+                  <span>{selectedAcademicPeriod.name}</span>
+                  <Badge variant="success">Active</Badge>
                 </div>
-
-                {selectedAcademicPeriod && (
-                  <div className="flex gap-4">
-                    <div className="flex-1">
-                      <div className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Academic Year</div>
-                      <div className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 text-sm font-medium">
-                        {academicYear}
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Semester</div>
-                      <div className="px-3 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-gray-700 dark:text-gray-300 text-sm font-medium">
-                        {semester}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <Select
-                  label="Target Evaluation Form"
-                  value={selectedFormId}
-                  onChange={e => setSelectedFormId(e.target.value)}
-                  options={formOptions}
-                  placeholder="Select an evaluation form..."
-                  disabled={isEditMode && status !== 'draft'}
-                />
-                {selectedForm && (
-                  <div className="mt-2 flex flex-col items-start gap-1">
-                    <Badge variant={selectedForm.type === 'student-to-teacher' ? 'default' : 'secondary'} className="mb-0.5">
-                      Type: {formTypeLabel[selectedForm.type] || selectedForm.type}
-                    </Badge>
-                    {isEditMode && status !== 'draft' && (
-                      <span className="text-xs text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-2 py-0.5 rounded border border-orange-200 dark:border-orange-800 mt-1">
-                        Locked — form cannot be changed after leaving draft
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
+              ) : (
+                <div className="px-4 py-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg text-yellow-700 dark:text-yellow-300 text-sm">
+                  No active academic period.{' '}
+                  <Link href="/dean/academic" className="text-blue-600 hover:underline">Set one up</Link>.
+                </div>
+              )}
             </div>
 
-            {/* Config options */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-              <div className="space-y-4">
-                <Input
-                  label="Evaluation Name Prefix"
-                  value={namePrefix}
-                  onChange={e => setNamePrefix(e.target.value)}
-                  placeholder="e.g. Midterm Evaluation"
-                  helperText="Optional custom prefix to distinguish this instance"
-                />
-                <div className="bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 p-4 rounded-lg">
-                  <div className="block text-xs font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wider mb-2">Final Name Preview</div>
-                  <div className="text-sm font-medium text-gray-800 dark:text-gray-200">
-                    {generatedName || <span className="text-gray-400 italic">Name will generate here</span>}
+            {/* Evaluation Form Dropdown */}
+            <div>
+              <Select
+                label="Evaluation Form"
+                value={selectedFormId}
+                onChange={e => setSelectedFormId(e.target.value)}
+                options={formOptions}
+                placeholder="Select an evaluation form..."
+                disabled={isEditMode && status !== 'draft'}
+              />
+              {selectedForm && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Badge variant={selectedForm.type === 'student-to-teacher' ? 'default' : 'secondary'}>
+                    {formTypeLabel[selectedForm.type] || selectedForm.type}
+                  </Badge>
+                  {isEditMode && status !== 'draft' && (
+                    <span className="text-xs text-gray-500 dark:text-gray-400">Locked — form cannot be changed after leaving draft</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Derived AY + Semester (read-only) */}
+            {selectedAcademicPeriod && (
+              <>
+                <div>
+                  <div className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Academic Year</div>
+                  <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 text-sm">
+                    {academicYear}
                   </div>
                 </div>
-              </div>
-              
-              <div className="bg-gray-50/50 dark:bg-gray-800/30 p-4 border border-gray-100 dark:border-gray-700/50 rounded-xl space-y-4">
-                <div className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Execution Window</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <Input
-                    label="Start Date"
-                    type="date"
-                    value={evalStartDate}
-                    onChange={e => setEvalStartDate(e.target.value)}
-                    className="calendar-lg-popup cursor-pointer"
-                  />
-                  <Input
-                    label="End Date"
-                    type="date"
-                    value={evalEndDate}
-                    onChange={e => setEvalEndDate(e.target.value)}
-                    className="calendar-lg-popup cursor-pointer"
-                  />
+                <div>
+                  <div className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Semester</div>
+                  <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 text-sm">
+                    {semester}
+                  </div>
                 </div>
-                {dateWarning && <Alert variant="error" title="Date Warning">{dateWarning}</Alert>}
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  Submissions are only allowed strictly within this timeframe.
-                </p>
+              </>
+            )}
+
+            <Input
+              label="Evaluation Name Prefix"
+              value={namePrefix}
+              onChange={e => setNamePrefix(e.target.value)}
+              placeholder="e.g. Midterm Evaluation"
+              helperText="Optional custom prefix for the evaluation name"
+            />
+            <div>
+              <div className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Name Preview</div>
+              <div className="px-4 py-2 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 text-sm">
+                {generatedName}
               </div>
+            </div>
+            <Input
+              label="Start Date"
+              type="date"
+              value={evalStartDate}
+              onChange={e => setEvalStartDate(e.target.value)}
+            />
+            <div>
+              <Input
+                label="End Date"
+                type="date"
+                value={evalEndDate}
+                onChange={e => setEvalEndDate(e.target.value)}
+              />
+              {dateWarning && <Alert variant="error" title="Date Warning">{dateWarning}</Alert>}
+              <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">Students can only answer during this period.</p>
             </div>
           </div>
 
@@ -896,52 +831,49 @@ export default function EvaluationSetupPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {groups.map((group, groupIndex) => {
-              const subjects = getSubjectsForGroup(curriculum, group.program, group.yearLevel, semester);
+              const subjects = getSubjectsForGroup(group.program, group.yearLevel, semester);
               const yearLevels = getYearLevels(group.program);
               const assignedCount = group.selectedCodes.filter(c => group.assignments[c]).length;
 
               return (
-                <div key={group.id} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800/50 shadow-sm transition-all focus-within:ring-2 focus-within:ring-blue-500/20">
+                <div key={group.id} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                   {/* Group Header */}
                   <div
-                    className="flex items-center justify-between px-5 py-4 bg-gray-50/80 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-700/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                    className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 cursor-pointer"
                     onClick={() => toggleGroupCollapse(group.id)} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') { toggleGroupCollapse(group.id); } }}
                   >
-                    <div className="flex items-center gap-4">
-                      <div className="flex justify-center flex-shrink-0 items-center w-7 h-7 bg-white dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-600 shadow-sm">
-                        {group.collapsed ? <ChevronDown className="w-4 h-4 text-gray-500" /> : <ChevronUp className="w-4 h-4 text-gray-500" />}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-                          Group {groupIndex + 1}
-                          {group.program && group.yearLevel && (
-                             <Badge variant="outline" className="ml-1 px-2 py-0.5 text-xs font-semibold">{group.program} - Year {group.yearLevel}</Badge>
-                          )}
-                        </span>
-                      </div>
-                      
+                    <div className="flex items-center gap-3">
+                      {group.collapsed
+                        ? <ChevronDown className="w-4 h-4 text-gray-500" />
+                        : <ChevronUp className="w-4 h-4 text-gray-500" />}
+                      <span className="font-semibold text-gray-900 dark:text-white">
+                        Group {groupIndex + 1}
+                        {group.program && group.yearLevel
+                          ? ` — ${group.program} ${group.yearLevel}`
+                          : ''}
+                      </span>
                       {group.selectedCodes.length > 0 && (
-                        <Badge variant={assignedCount === group.selectedCodes.length ? 'success' : 'secondary'} className="ml-2 font-medium">
-                          {assignedCount}/{group.selectedCodes.length} Subjects Assigned
+                        <Badge variant="secondary">
+                          {assignedCount}/{group.selectedCodes.length} assigned
                         </Badge>
                       )}
                     </div>
                     {groups.length > 1 && (
                       <Button
-                        variant="ghost"
+                        variant="danger"
                         size="sm"
-                        className="gap-2 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
+                        className="gap-1"
                         onClick={(e) => { e.stopPropagation(); removeGroup(group.id); }}
                       >
-                        <Trash2 className="w-4 h-4" /> <span className="hidden sm:inline">Remove Group</span>
+                        <Trash2 className="w-3 h-3" /> Remove
                       </Button>
                     )}
                   </div>
 
                   {/* Group Body */}
                   {!group.collapsed && (
-                    <div className="p-5 space-y-6">
-                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 bg-blue-50/30 dark:bg-blue-900/10 p-4 rounded-xl border border-blue-100 dark:border-blue-900/30">
+                    <div className="p-4 space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <Select
                           label="Course Program"
                           value={group.program}
@@ -975,7 +907,7 @@ export default function EvaluationSetupPage() {
                           placeholder="Select Year"
                         />
                         <Select
-                          label="Global Section Pattern"
+                          label="Default Section"
                           value={group.defaultSection}
                           onChange={e => updateGroup(group.id, { defaultSection: e.target.value })}
                           options={[
@@ -985,7 +917,6 @@ export default function EvaluationSetupPage() {
                             { value: 'D', label: 'D' },
                           ]}
                           placeholder="Select Section"
-                          helperText="Applies by default to all subjects"
                         />
                         <Select
                           label="Assign All Instructor"
@@ -1006,65 +937,60 @@ export default function EvaluationSetupPage() {
                             });
                           }}
                           options={instructorOptions}
-                          placeholder="Batch Assign Instructor..."
-                          helperText="Quickly assign one teacher to all selected"
+                          placeholder="Select to assign all..."
                         />
                       </div>
 
                       {/* Subjects table */}
-                      <div className="overflow-hidden border border-gray-200 dark:border-gray-700 rounded-xl">
+                      <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-gray-100/50 dark:bg-gray-800/80">
+                          <thead className="bg-gray-50 dark:bg-gray-800">
                             <tr>
-                              <th className="px-4 py-3.5 text-left w-12">
+                              <th className="px-4 py-3 text-left">
                                 <input
                                   type="checkbox"
                                   checked={group.selectedCodes.length === subjects.length && subjects.length > 0}
                                   onChange={() => toggleAllSubjects(group.id, subjects)}
-                                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                 />
                               </th>
-                              <th className="px-4 py-3.5 text-left font-semibold text-gray-700 dark:text-gray-300 w-32">Code</th>
-                              <th className="px-4 py-3.5 text-left font-semibold text-gray-700 dark:text-gray-300">Subject Name</th>
-                              <th className="px-4 py-3.5 text-left font-semibold text-gray-700 dark:text-gray-300 min-w-[200px]">Instructor</th>
-                              <th className="px-4 py-3.5 text-left font-semibold text-gray-700 dark:text-gray-300 w-28">Section</th>
+                              <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Subject Code</th>
+                              <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Subject Name</th>
+                              <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Instructor</th>
+                              <th className="px-4 py-3 text-left font-medium text-gray-600 dark:text-gray-400">Section</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-gray-200 dark:divide-gray-700/50">
+                          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                             {subjects.length > 0 ? subjects.map((s: any) => (
-                              <tr key={s.code} className={`transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${group.selectedCodes.includes(s.code) ? 'bg-blue-50/20 dark:bg-blue-900/5' : ''}`}>
+                              <tr key={s.code} className={group.selectedCodes.includes(s.code) ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''}>
                                 <td className="px-4 py-3">
                                   <input
                                     type="checkbox"
                                     checked={group.selectedCodes.includes(s.code)}
                                     onChange={() => toggleSubject(group.id, s.code)}
-                                    className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                   />
                                 </td>
-                                <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white">
-                                  <span className={!group.selectedCodes.includes(s.code) ? 'opacity-50' : ''}>{s.code}</span>
-                                </td>
-                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">
-                                  <span className={!group.selectedCodes.includes(s.code) ? 'opacity-50' : ''}>{s.name}</span>
-                                </td>
-                                <td className="px-4 py-2">
+                                <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{s.code}</td>
+                                <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{s.name}</td>
+                                <td className="px-4 py-3">
                                   <select
                                     value={group.assignments[s.code] || ''}
                                     onChange={e => assignInstructor(group.id, s.code, e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 disabled:opacity-40 disabled:bg-gray-50 transition"
+                                    className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                     disabled={!group.selectedCodes.includes(s.code)}
                                   >
-                                    <option value="" disabled>Select Instructor...</option>
+                                    <option value="">Select...</option>
                                     {instructorOptions.map((opt: any) => (
                                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                                     ))}
                                   </select>
                                 </td>
-                                <td className="px-4 py-2">
+                                <td className="px-4 py-3">
                                   <select
                                     value={getSection(group, s.code)}
                                     onChange={e => assignSection(group.id, s.code, e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 disabled:opacity-40 disabled:bg-gray-50 transition"
+                                    className="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
                                     disabled={!group.selectedCodes.includes(s.code)}
                                   >
                                     {['A', 'B', 'C', 'D'].map(sec => (
@@ -1075,15 +1001,12 @@ export default function EvaluationSetupPage() {
                               </tr>
                             )) : (
                               <tr>
-                                <td colSpan={5} className="text-center text-gray-500 dark:text-gray-400 py-12">
-                                  <div className="flex flex-col items-center justify-center space-y-2 opacity-60">
-                                    <FileText className="w-8 h-8 mb-2" />
-                                    {!group.program || !group.yearLevel
-                                      ? <span>Select a course program and year level above to load available subjects.</span>
-                                      : !semester
-                                      ? <span>Select an academic period to determine the semester.</span>
-                                      : <span>No subjects found for this combination.</span>}
-                                  </div>
+                                <td colSpan={5} className="text-center text-gray-500 dark:text-gray-400 py-8">
+                                  {!group.program || !group.yearLevel
+                                    ? 'Select a program and year level to load subjects.'
+                                    : !semester
+                                    ? 'Select an academic period to determine the semester.'
+                                    : 'No subjects found for this combination.'}
                                 </td>
                               </tr>
                             )}
@@ -1154,77 +1077,50 @@ export default function EvaluationSetupPage() {
       )}
 
       {/* ── SECTION 3: Save & Start ── */}
-      <Card className="hover:shadow-lg transition-shadow border-t-4 border-t-rose-600/50">
+      <Card className="hover:shadow-lg transition-shadow">
         <CardHeader>
-          <CardTitle className="text-2xl">{showInstructorAssignment ? '3' : '2'}. Review & Launch</CardTitle>
-          <CardDescription>Confirm your status and either save a draft for later or start pushing the evaluation live to users.</CardDescription>
+          <CardTitle className="text-2xl">{showInstructorAssignment ? '3' : '2'}. Save & Start Evaluation</CardTitle>
+          <CardDescription>Save as draft or start the evaluation immediately.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-            <div className="space-y-4">
-              <div className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Select Execution Status</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {[
-                  { id: 'draft', label: 'Draft', desc: 'Hidden from users' },
-                  { id: 'active', label: 'Active', desc: 'Live collecting data' },
-                  { id: 'closed', label: 'Closed', desc: 'Archived record' }
-                ].map((s) => (
-                  <label 
-                    key={s.id} 
-                    className={`relative flex flex-col p-4 cursor-pointer rounded-xl border-2 transition-all hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
-                      status === s.id 
-                        ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/20 dark:border-blue-500 shadow-sm' 
-                        : 'border-gray-200 dark:border-gray-700'
-                    }`}
-                  >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <div className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Evaluation Status</div>
+              <div className="flex gap-4 mb-3">
+                {(['draft', 'active', 'closed'] as const).map(s => (
+                  <label key={s} className="inline-flex items-center gap-2 cursor-pointer">
                     <input
                       type="radio"
                       name="status"
-                      value={s.id}
-                      checked={status === s.id}
-                      onChange={() => setStatus(s.id)}
-                      className="peer sr-only"
+                      value={s}
+                      checked={status === s}
+                      onChange={() => setStatus(s)}
+                      className="accent-rose-900"
                     />
-                    <span className="text-sm font-bold text-gray-900 dark:text-white capitalize mb-1">{s.label}</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400 leading-tight">{s.desc}</span>
-                    <div className={`absolute top-4 right-4 w-4 h-4 rounded-full border-2 flex justify-center items-center transition-colors ${
-                      status === s.id ? 'border-blue-600 dark:border-blue-400' : 'border-gray-300 dark:border-gray-600'
-                    }`}>
-                       {status === s.id && <div className="w-2 h-2 rounded-full bg-blue-600 dark:bg-blue-400" />}
-                    </div>
+                    <span className="text-sm capitalize text-gray-700 dark:text-gray-300">{s}</span>
                   </label>
                 ))}
               </div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
+                <p><strong>Draft</strong> — saved but not visible to students</p>
+                <p><strong>Active</strong> — students can start evaluating immediately</p>
+                <p><strong>Closed</strong> — evaluation completed, no more submissions</p>
+              </div>
             </div>
-            
-            <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row justify-end gap-3 lg:mt-8">
-              <Button 
-                variant="outline" 
-                size="lg"
-                className="gap-2 flex-1 shadow-sm font-semibold border-gray-300 dark:border-gray-600 hover:bg-gray-50" 
-                onClick={saveSetup} 
-                disabled={saving || starting} 
-                isLoading={saving}
-              >
-                <Save className="w-5 h-5 opacity-70" />
-                {savedPeriodId ? 'Update Draft' : 'Save Draft'}
+            <div className="flex flex-col justify-end gap-3">
+              <Button variant="outline" className="gap-2" onClick={saveSetup} disabled={saving} isLoading={saving}>
+                <Save className="w-4 h-4" />
+                {savedPeriodId ? 'Save Changes' : 'Save as Draft'}
               </Button>
-              <Button 
-                variant="primary" 
-                size="lg"
-                className="gap-2 flex-1 shadow-md bg-rose-700 hover:bg-rose-800 text-white font-semibold" 
-                onClick={startEvaluation} 
-                disabled={starting || saving} 
-                isLoading={starting}
-              >
-                <Play className="w-5 h-5" />
-                {isEditMode ? 'Apply & Deploy' : 'Launch Evaluation'}
+              <Button variant="primary" className="gap-2" onClick={startEvaluation} disabled={starting} isLoading={starting}>
+                <Play className="w-4 h-4" />
+                {isEditMode ? 'Update & Apply' : 'Start Evaluation'}
               </Button>
             </div>
           </div>
 
           {sectionFeedback.section3 && (
-            <div ref={section3Ref} className="mt-6 animate-in fade-in slide-in-from-top-2">
+            <div ref={section3Ref} className="mt-4">
               <Alert variant={sectionFeedback.section3.type === 'success' ? 'success' : 'error'} title={sectionFeedback.section3.type === 'success' ? 'Success' : 'Error'}>
                 {sectionFeedback.section3.message}
               </Alert>
@@ -1233,12 +1129,6 @@ export default function EvaluationSetupPage() {
 
         </CardContent>
       </Card>
-      <ConfirmPasswordModal
-        isOpen={isConfirmPasswordOpen}
-        onClose={() => setIsConfirmPasswordOpen(false)}
-        onConfirm={pendingAction}
-        {...confirmModalConfig}
-      />
     </div>
   );
 }

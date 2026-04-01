@@ -13,7 +13,6 @@ interface ConfirmModalProps {
   cancelLabel?: string;
   variant?: 'danger' | 'warning' | 'default';
   loading?: boolean;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
 }
 
 export function ConfirmModal({
@@ -26,7 +25,6 @@ export function ConfirmModal({
   cancelLabel = 'Cancel',
   variant = 'danger',
   loading = false,
-  size = 'md',
 }: ConfirmModalProps) {
   const iconColor = variant === 'danger'
     ? 'text-red-600 bg-red-100 dark:bg-red-900/30'
@@ -37,7 +35,7 @@ export function ConfirmModal({
   const buttonVariant = variant === 'danger' ? 'danger' : 'primary';
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} size={size}>
+    <Modal isOpen={isOpen} onClose={onClose} size="sm">
       <div className="flex flex-col items-center text-center">
         <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${iconColor}`}>
           <AlertTriangle className="w-6 h-6" />
@@ -65,7 +63,6 @@ export function useConfirmModal() {
     message: string;
     confirmLabel: string;
     variant: 'danger' | 'warning' | 'default';
-    size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
     onConfirm: () => void;
   }>({
     isOpen: false,
@@ -73,7 +70,6 @@ export function useConfirmModal() {
     message: '',
     confirmLabel: 'Confirm',
     variant: 'danger',
-    size: 'md',
     onConfirm: () => {},
   });
 
@@ -82,7 +78,6 @@ export function useConfirmModal() {
     message: string;
     confirmLabel?: string;
     variant?: 'danger' | 'warning' | 'default';
-    size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
     onConfirm: () => void;
   }) => {
     setState({
@@ -91,7 +86,6 @@ export function useConfirmModal() {
       message: options.message,
       confirmLabel: options.confirmLabel || 'Confirm',
       variant: options.variant || 'danger',
-      size: options.size || 'md',
       onConfirm: options.onConfirm,
     });
   };
@@ -106,7 +100,6 @@ export function useConfirmModal() {
     message: state.message,
     confirmLabel: state.confirmLabel,
     variant: state.variant,
-    size: state.size,
   };
 
   return { confirm, modalProps, ConfirmModal };

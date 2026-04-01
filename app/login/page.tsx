@@ -6,15 +6,13 @@ import { useTheme } from 'next-themes';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Alert } from '@/components/ui/Alert';
-import Chatbot from '@/components/ui/Chatbot';
 import { Eye, EyeOff, Moon, Sun } from 'lucide-react';
-import ReCAPTCHA from 'react-google-recaptcha';
 import { getRoleDashboardPath } from '@/utils/helpers';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login, setUserFromApi, setToken } = useAuth();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   
   const [email, setEmail] = useState('');
@@ -23,9 +21,6 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
-
-  // Captcha State
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -76,22 +71,21 @@ export default function LoginPage() {
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-  
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   if (!mounted) return null;
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 transition-colors duration-300 flex flex-col lg:flex-row">
+    <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-950' : 'bg-white'} transition-colors duration-300 flex flex-col lg:flex-row`}>
       {/* Dark Mode Toggle */}
       <button
-        onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         className="fixed top-6 right-6 z-50 p-3 rounded-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-110"
         aria-label="Toggle dark mode"
       >
-        {resolvedTheme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+        {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
       </button>
 
       {/* Left Panel - Institution Information */}
@@ -170,8 +164,7 @@ export default function LoginPage() {
                 </Alert>
               )}
 
-              <form onSubmit={handleLoginWithEmail} className="space-y-6">
-                {/* Email Input */}
+              {/* Email Input */}
               <div>
                 <div className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                   Institutional Email
@@ -218,14 +211,12 @@ export default function LoginPage() {
                 </label>
                 <button
                   type="button"
-                  onClick={() => setError('Please contact the admin to recover your password.')}
+                  onClick={() => alert('Please contact the admin to recover your password.')}
                   className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
                 >
                   Forgot password? Contact Admin
                 </button>
               </div>
-
-              {/* Google reCAPTCHA has been completely disabled */}
 
               {/* Login Button */}
               <button
@@ -242,8 +233,6 @@ export default function LoginPage() {
                   'Sign In'
                 )}
               </button>
-              
-              </form>
 
               {/* Support links removed per design */}
             </CardContent>
@@ -278,8 +267,6 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-
-      <Chatbot />
 
       <style jsx global>{`
         @keyframes slideDown {

@@ -44,7 +44,6 @@ spec:
         app: college-eval-system
         component: database
     spec:
-      automountServiceAccountToken: false
       containers:
       - image: mysql:8.0
         name: mysql
@@ -54,13 +53,6 @@ spec:
         ports:
         - containerPort: 3306
           name: mysql
-        resources:
-          limits:
-            memory: "1Gi"
-            ephemeral-storage: "2Gi"
-          requests:
-            memory: "512Mi"
-            ephemeral-storage: "1Gi"
         volumeMounts:
         - name: mysql-persistent-storage
           mountPath: /var/lib/mysql

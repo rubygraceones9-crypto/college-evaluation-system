@@ -13,7 +13,6 @@ export interface User {
   course?: string;
   year_level?: number;
   section?: string;
-
 }
 
 // Course Types

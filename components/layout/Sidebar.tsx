@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
 interface SidebarItem {
@@ -18,8 +17,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ items, title, className = '' }: SidebarProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const pathname = usePathname();
+  const [isOpen, setIsOpen] = useState(true);
 
   return (
     <>
@@ -46,44 +44,32 @@ export function Sidebar({ items, title, className = '' }: SidebarProps) {
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-0 h-screen w-64 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-r border-gray-200/50 dark:border-gray-700/50 transition-transform duration-300 z-30 md:z-0 ${
+        className={`fixed left-0 top-0 h-screen w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-transform duration-300 z-30 md:z-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         } md:block ${className}`}
       >
         <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-center gap-2 mb-4">
-             <img src="/icons/JMCLOGO-removebg-preview.png" alt="Department Logo 1" className="h-10 w-auto" />
-             <img src="/icons/LOGO2-removebg-preview.png" alt="Department Logo 2" className="h-10 w-auto" />
-          </div>
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white uppercase tracking-tight text-center">{title}</h2>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">{title}</h2>
         </div>
 
         <nav className="p-4 space-y-2">
-          {items.map((item, index) => {
-            const isActive = pathname === item.href || (pathname?.startsWith(item.href) && item.href !== '/dean/dashboard' && item.href !== '/teacher/dashboard' && item.href !== '/student/dashboard');
-            
-            return (
-              <Link
-                key={index}
-                href={item.href}
-                className={`flex items-center justify-between px-4 py-2.5 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-slate-100 dark:bg-gray-800 text-slate-800 dark:text-white font-semibold'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  {item.icon}
-                  <span>{item.label}</span>
-                </div>
-                {Boolean(item.badge) && (
-                  <span className="bg-purple-600 text-white text-xs rounded-full px-2 py-1">
-                    {item.badge}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+          {items.map((item, index) => (
+            <Link
+              key={index}
+              href={item.href}
+              className="flex items-center justify-between px-4 py-2.5 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                {item.icon}
+                <span className="font-medium">{item.label}</span>
+              </div>
+              {Boolean(item.badge) && (
+                <span className="bg-purple-600 text-white text-xs rounded-full px-2 py-1">
+                  {item.badge}
+                </span>
+              )}
+            </Link>
+          ))}
         </nav>
       </aside>
 

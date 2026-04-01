@@ -6,7 +6,7 @@ interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 export function Checkbox({ label, error, id, className = '', ...props }: CheckboxProps) {
-  const checkboxId = id || `checkbox-${Date.now().toString(36)}`;
+  const checkboxId = id || `checkbox-${Math.random()}`;
 
   return (
     <div className="flex items-center">

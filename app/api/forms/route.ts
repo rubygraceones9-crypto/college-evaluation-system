@@ -1,7 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 
-import { verifyToken, getAuthToken } from '@/lib/auth';
+let jwt: any = null;
+async function loadJWT() {
+  if (!jwt) {
+    const jwtModule = await import('jsonwebtoken');
+    jwt = jwtModule.default || jwtModule;
+  }
+  return jwt;
+}
+
+function getAuthToken(request: NextRequest): string | null {
+  const authHeader = request.headers.get('authorization');
+  if (!authHeader?.startsWith('Bearer ')) return null;
+  return authHeader.substring(7);
+}
+
+async function verifyToken(token: string) {
+  try {
+    const jwtLib = await loadJWT();
+    return jwtLib.verify(token, process.env.JWT_SECRET || 'secret');
+  } catch {
+    return null;
+  }
+}
 
 // Load criteria + questions for a form and return as structured array
 async function loadFormCriteria(formId: number) {
@@ -39,10 +61,10 @@ async function loadFormCriteria(formId: number) {
 async function saveFormCriteria(formId: number, criteria: any[]) {
   for (const c of criteria) {
     const critResult: any = await query(
-      'INSERT INTO evaluation_criteria (form_id, name, description, weight, max_score) VALUES (?, ?, ?, ?, ?) RETURNING id',
+      'INSERT INTO evaluation_criteria (form_id, name, description, weight, max_score) VALUES (?, ?, ?, ?, ?)',
       [formId, c.name, c.description || null, c.weight, c.maxScore || 5]
     );
-    const criteriaId = critResult[0]?.id;
+    const criteriaId = critResult.insertId;
 
     if (Array.isArray(c.questions)) {
       for (const q of c.questions) {
@@ -55,16 +77,11 @@ async function saveFormCriteria(formId: number, criteria: any[]) {
   }
 }
 
-/**
- * Handles the HTTP GET request securely.
- * Verifies the authorization bearer token natively via abstract logic.
- * Prevents access if user does not match the scoped role mapping.
- */
 export async function GET(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const decoded: any = verifyToken(token);
+    const decoded: any = await verifyToken(token);
     if (!decoded) return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
 
     const url = new URL(request.url);
@@ -101,17 +118,12 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP POST request securely.
- * Mutates system state through parametric execution safely.
- * Asserts strict JSON structural types directly.
- */
 export async function POST(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
     const { name, description, type, criteria } = body;
@@ -121,10 +133,10 @@ export async function POST(request: NextRequest) {
 
     // 1. Insert the form
     const result: any = await query(
-      'INSERT INTO evaluation_forms (name, description, type) VALUES (?, ?, ?) RETURNING id',
+      'INSERT INTO evaluation_forms (name, description, type) VALUES (?, ?, ?)',
       [name, description || '', type]
     );
-    const formId = result[0]?.id;
+    const formId = result.insertId;
 
     // 2. Insert criteria + questions
     await saveFormCriteria(formId, criteria);
@@ -140,16 +152,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP PATCH request securely.
- * Applies partial structural updates reliably over database.
- */
 export async function PATCH(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await request.json();
     const { id, name, description, type, criteria } = body;
@@ -185,16 +193,12 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-/**
- * Handles the HTTP DELETE request securely.
- * Ensures isolated teardowns leveraging foreign cascaded keys securely.
- */
 export async function DELETE(request: NextRequest) {
   try {
     const token = getAuthToken(request);
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const decoded: any = verifyToken(token);
-    if (decoded?.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const decoded: any = await verifyToken(token);
+    if (!decoded || decoded.role !== 'dean') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const url = new URL(request.url);
     const id = url.searchParams.get('id');
