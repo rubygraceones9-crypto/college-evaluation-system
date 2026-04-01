@@ -78,12 +78,15 @@ async function handleEmailLogin(
       );
     }
 
-    // Query database for user
+    // Query database for user (using LOWER for case-insensitive email match in Postgres)
     const users = await query(
-      'SELECT id, name, email, role, course, year_level, section FROM users WHERE email = ? AND password = ?',
-      [email, password] // TODO: Use bcrypt for password hashing in production
+      'SELECT id, name, email, role, course, year_level, section FROM users WHERE LOWER(email) = LOWER(?) AND password = ?',
+      [email, password]
     ) as any[];
-    console.log('User query result:', users);
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Login query result count:', users.length);
+    }
 
     if (users.length === 0) {
       return NextResponse.json(
