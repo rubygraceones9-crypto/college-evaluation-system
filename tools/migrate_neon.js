@@ -3,9 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 async function migrate() {
-  const connectionString = process.argv[2];
+  const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
-    console.error('Usage: node migrate_neon.js <DATABASE_URL>');
+    console.error('❌ Error: DATABASE_URL environment variable is not set. Use "$env:DATABASE_URL=\'url\'; npm run db:init" in PowerShell.');
     process.exit(1);
   }
 
